@@ -1,0 +1,68 @@
+# 监听地址
+listen: :8081
+# Socks5 代理地址
+socks5: 127.0.0.1:1080
+
+# 调用方可用的 Key，用于替代 OpenAI 的 Key
+keys:
+  - "f5e2758c4dc31cb8bd6a496b41dbb765"
+
+# 代理规则
+rules:
+  - # 服务器地址，不需要添加后面的 /v1
+    # 多个服务器会随机负载均衡
+    servers:
+      - "https://api.openai.com"
+    # 服务器对应的 Key
+    # 多个 Key 会随机负载均衡
+    keys:
+      - "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      - "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    # 是否使用 Socks5 代理请求
+    proxy: true
+    # 是否是默认规则，当所有模型都匹配不到时，使用默认规则
+    default: true
+    # 当前服务器支持的模型列表
+    models:
+      - gpt-3.5-turbo
+      - gpt-3.5-turbo-1106
+      - gpt-3.5-turbo-16k
+      - gpt-3.5-turbo-16k-0613
+      - gpt-3.5-turbo-instruct
+      - gpt-3.5-turbo-instruct-0914
+      - gpt-4
+      - gpt-4-0613
+      - gpt-4-1106-preview
+      - gpt-4-vision-preview
+      - dall-e-3
+      - dall-e-2
+      - tts-1
+      - tts-1-1106
+      - tts-1-hd
+      - tts-1-hd-1106
+      - whisper-1
+    # 模型重写
+    # 将请求中的 src 修改为 dst
+    rewrite:
+      - src: gpt-3.5-turbo
+        dst: gpt-3.5-turbo-1106
+      - src: gpt-3.5-turbo-16k
+        dst: gpt-3.5-turbo-16k-0613
+      - src: gpt-4
+        dst: gpt-4-0613
+      - src: tts-1
+        dst: tts-1-1106
+      - src: tts-1-hd
+        dst: tts-1-hd-1106
+
+  - servers:
+      - "https://api.openai.com"
+    keys:
+      - "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    models:
+      - gpt-3.5-turbo
+      - gpt-3.5-turbo-16k
+      - gpt-3.5-turbo-16k-0613
+      - gpt-3.5-turbo-instruct
+      - dall-e-2
+      - whisper-1
