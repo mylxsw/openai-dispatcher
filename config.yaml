@@ -9,6 +9,9 @@ log-path: ""
 keys:
   - "f5e2758c4dc31cb8bd6a496b41dbb765"
 
+# 代理选择策略：round_robin、random
+policy: "round_robin"
+
 # 代理规则
 rules:
   - # 服务器地址，不需要添加后面的 /v1

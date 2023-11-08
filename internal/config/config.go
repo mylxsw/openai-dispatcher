@@ -3,20 +3,27 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mylxsw/go-utils/array"
 	"gopkg.in/yaml.v2"
 	"os"
 )
 
 type Config struct {
-	LogPath string   `yaml:"log-path" json:"log-path"`
-	Listen  string   `yaml:"listen" json:"listen"`
-	Socks5  string   `yaml:"socks5" json:"socks5"`
+	LogPath string   `yaml:"log-path" json:"log-path,omitempty"`
+	Listen  string   `yaml:"listen" json:"listen,omitempty"`
+	Socks5  string   `yaml:"socks5" json:"socks5,omitempty"`
 	Keys    []string `yaml:"keys" json:"-"`
-	Rules   Rules    `yaml:"rules" json:"rules"`
+	Policy  string   `yaml:"policy" json:"policy,omitempty"`
+	Rules   Rules    `yaml:"rules" json:"rules,omitempty"`
 }
 
 func (conf *Config) Validate() error {
 	// TODO 检查配置是否正确
+
+	if !array.In(conf.Policy, []string{"random", "round_robin"}) {
+		return fmt.Errorf("policy 只支持 random 或 round_robin")
+	}
+
 	for i, rule := range conf.Rules {
 		if rule.Azure && rule.Default {
 			return fmt.Errorf("azure 规则暂不能设置为默认规则 #%d", i+1)

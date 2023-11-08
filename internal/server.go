@@ -3,6 +3,7 @@ package internal
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
@@ -18,8 +19,8 @@ import (
 
 type Server struct {
 	conf             *config.Config
-	upstreams        map[string]upstream.Upstreams
-	defaultUpstreams upstream.Upstreams
+	upstreams        map[string]*upstream.Upstreams
+	defaultUpstreams *upstream.Upstreams
 
 	dialer proxy.Dialer
 	once   sync.Once
@@ -36,9 +37,14 @@ func NewServer(conf *config.Config) (*Server, error) {
 		}
 	}
 
-	upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(conf.Rules, conf.Validate(), dialer)
+	upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, conf.Validate(), dialer)
 	if err != nil {
 		return nil, err
+	}
+
+	for model, ups := range upstreams {
+		fmt.Println(model)
+		ups.Print()
 	}
 
 	return &Server{
@@ -98,7 +104,7 @@ var (
 
 // Dispatch 请求分发实现逻辑
 func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
-	var ups upstream.Upstreams
+	var ups *upstream.Upstreams
 	var selected *upstream.Upstream
 	var selectedIndex int
 
@@ -125,7 +131,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 
 		ups = s.upstreams[model]
-		if len(ups) == 0 {
+		if ups == nil || ups.Len() == 0 {
 			return ErrNotSupport
 		}
 
@@ -152,6 +158,9 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
+	log.F(log.M{"current": selectedIndex, "server": selected.Server, "key": selected.Key, "candidates": ups.Len()}).
+		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
+
 	usedIndex := []int{selectedIndex}
 
 	var retry func(w http.ResponseWriter, r *http.Request, err error)
@@ -161,7 +170,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		selected, selectedIndex = ups.Next(usedIndex...)
 		if selected != nil {
 			retryCount++
-			log.F(log.M{"next": selectedIndex, "used": usedIndex, "server": selected.Server, "candidates": len(ups)}).Warningf("retry next upstream[%d]: %v", retryCount, err)
+			log.F(log.M{"next": selectedIndex, "used": usedIndex, "server": selected.Server, "candidates": ups.Len()}).Warningf("retry next upstream[%d]: %v", retryCount, err)
 
 			usedIndex = append(usedIndex, selectedIndex)
 

@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/proxy"
 	"math/rand"
 	"net/http"
+	"strings"
+	"sync"
 )
 
 var (
@@ -23,28 +25,89 @@ type Upstream struct {
 	Key     string
 }
 
+func (u *Upstream) MaskedKey() string {
+	return mask(10, u.Key)
+}
+
 type Handler interface {
 	Serve(w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error))
 }
 
-type Upstreams []*Upstream
+type Upstreams struct {
+	ups    []*Upstream
+	policy Policy
+	index  int
+	lock   sync.Mutex
+}
 
-func (u Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
-	candidates := array.Filter(u, func(item *Upstream, _ int) bool { return !array.In(item.Index, excludeIndex) })
+type Policy string
+
+const (
+	RandomPolicy     Policy = "random"
+	RoundRobinPolicy Policy = "round_robin"
+)
+
+func NewUpstreams(policy Policy) *Upstreams {
+	return &Upstreams{policy: policy, ups: make([]*Upstream, 0)}
+}
+
+func (u *Upstreams) Len() int {
+	return len(u.ups)
+}
+
+func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
+	candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !array.In(item.Index, excludeIndex) })
 	if len(candidates) == 0 {
 		return nil, -1
 	}
 
-	index := rand.Intn(len(candidates))
-	return candidates[index], candidates[index].Index
+	// 当包含要排除的 index 时，说明是重试，此时随机选择一个 upstream
+	if len(excludeIndex) > 0 {
+		index := rand.Intn(len(candidates))
+		return candidates[index], candidates[index].Index
+	}
+
+	switch u.policy {
+	case RandomPolicy: // 随机策略
+		index := rand.Intn(len(candidates))
+		return candidates[index], candidates[index].Index
+
+	case RoundRobinPolicy: // 轮询策略
+		u.lock.Lock()
+		defer u.lock.Unlock()
+
+		u.index = (u.index + 1) % len(candidates)
+		return candidates[u.index], candidates[u.index].Index
+	default:
+		panic("unknown policy: " + u.policy)
+	}
 }
 
-func BuildUpstreamsFromRules(rules config.Rules, err error, dialer proxy.Dialer) (map[string]Upstreams, Upstreams, error) {
-	proxies := make(map[string]Upstreams)
-	defaultProxies := make(Upstreams, 0)
+func (u *Upstreams) Print() {
+	for _, up := range u.ups {
+		fmt.Printf("    %s -> %s\n", up.Server, up.MaskedKey())
+	}
+}
+
+func mask(left int, content string) string {
+	size := len(content)
+	if size < 16 {
+		return strings.Repeat("*", size)
+	}
+
+	return content[:left] + strings.Repeat("*", size-left*2) + content[size-left:]
+}
+
+func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, dialer proxy.Dialer) (map[string]*Upstreams, *Upstreams, error) {
+	ups := make(map[string]*Upstreams)
+	defaultUps := NewUpstreams(policy)
 
 	for i, rule := range rules {
 		for _, model := range rule.Models {
+			if _, ok := ups[model]; !ok {
+				ups[model] = NewUpstreams(policy)
+			}
+
 			for _, server := range rule.Servers {
 				for _, key := range rule.Keys {
 					var handler Handler
@@ -58,19 +121,19 @@ func BuildUpstreamsFromRules(rules config.Rules, err error, dialer proxy.Dialer)
 						return nil, nil, fmt.Errorf("创建 upstream 失败 #%d: %w", i+1, err)
 					}
 
-					proxies[model] = append(proxies[model], &Upstream{
+					ups[model].ups = append(ups[model].ups, &Upstream{
 						Rule:    rule,
 						Handler: handler,
-						Index:   len(proxies[model]),
+						Index:   len(ups[model].ups),
 						Server:  server,
 						Key:     key,
 					})
 
 					if rule.Default {
-						defaultProxies = append(defaultProxies, &Upstream{
+						defaultUps.ups = append(defaultUps.ups, &Upstream{
 							Rule:    rule,
 							Handler: handler,
-							Index:   len(defaultProxies),
+							Index:   len(defaultUps.ups),
 							Server:  server,
 							Key:     key,
 						})
@@ -80,5 +143,5 @@ func BuildUpstreamsFromRules(rules config.Rules, err error, dialer proxy.Dialer)
 		}
 	}
 
-	return proxies, defaultProxies, nil
+	return ups, defaultUps, nil
 }
