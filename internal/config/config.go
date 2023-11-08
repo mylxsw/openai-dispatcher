@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	Listen string   `yaml:"listen" json:"listen"`
-	Socks5 string   `yaml:"socks5" json:"socks5"`
-	Keys   []string `yaml:"keys" json:"-"`
-	Rules  Rules    `yaml:"rules" json:"rules"`
+	LogPath string   `yaml:"log-path" json:"log-path"`
+	Listen  string   `yaml:"listen" json:"listen"`
+	Socks5  string   `yaml:"socks5" json:"socks5"`
+	Keys    []string `yaml:"keys" json:"-"`
+	Rules   Rules    `yaml:"rules" json:"rules"`
 }
 
 func (conf *Config) Validate() error {

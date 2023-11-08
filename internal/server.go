@@ -113,6 +113,11 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		"/v1/images/generations",
 		"/v1/images/edits",
 		"/v1/images/variations",
+		"/v1/audio/speech",
+		"/v1/audio/transcriptions",
+		"/v1/audio/translations",
+		"/v1/moderations",
+		"/v1/embeddings",
 	}) {
 		model := gjson.Get(string(body), "model").String()
 		if model == "" {

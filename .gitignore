@@ -1,3 +1,4 @@
+Makefile.local
 config.local.yaml
 build/
 .idea/

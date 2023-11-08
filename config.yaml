@@ -2,6 +2,8 @@
 listen: :8081
 # Socks5 代理地址
 socks5: 127.0.0.1:1080
+# 日志目录
+log-path: ""
 
 # 调用方可用的 Key，用于替代 OpenAI 的 Key
 keys:
