@@ -158,7 +158,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	log.F(log.M{"current": selectedIndex, "server": selected.Server, "key": selected.Key, "candidates": ups.Len()}).
+	log.F(log.M{"current": selectedIndex, "server": selected.Server, "key": selected.MaskedKey(), "candidates": ups.Len()}).
 		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
 
 	usedIndex := []int{selectedIndex}
@@ -170,7 +170,8 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		selected, selectedIndex = ups.Next(usedIndex...)
 		if selected != nil {
 			retryCount++
-			log.F(log.M{"next": selectedIndex, "used": usedIndex, "server": selected.Server, "candidates": ups.Len()}).Warningf("retry next upstream[%d]: %v", retryCount, err)
+			log.F(log.M{"next": selectedIndex, "used": usedIndex, "server": selected.Server, "key": selected.MaskedKey(), "candidates": ups.Len()}).
+				Warningf("retry next upstream[%d]: %v", retryCount, err)
 
 			usedIndex = append(usedIndex, selectedIndex)
 
@@ -216,7 +217,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authHeader := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	authHeader := strings.TrimPrefix(strings.ToLower(r.Header.Get("Authorization")), "bearer ")
 	if authHeader == "" || !array.In(authHeader, s.conf.Keys) {
 		w.Header().Set("Content-Type", "application/json")
 

@@ -64,6 +64,8 @@ rules:
       - "https://api.openai.com"
     keys:
       - "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    # 备用规则，只有当出现错误时才会使用
+    backup: true
     models:
       - gpt-3.5-turbo
       - gpt-3.5-turbo-16k

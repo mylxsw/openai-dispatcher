@@ -36,8 +36,9 @@ type Handler interface {
 type Upstreams struct {
 	ups    []*Upstream
 	policy Policy
-	index  int
-	lock   sync.Mutex
+
+	index     int
+	indexLock sync.Mutex
 }
 
 type Policy string
@@ -56,15 +57,27 @@ func (u *Upstreams) Len() int {
 }
 
 func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
-	candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !array.In(item.Index, excludeIndex) })
-	if len(candidates) == 0 {
-		return nil, -1
-	}
-
-	// 当包含要排除的 index 时，说明是重试，此时随机选择一个 upstream
+	// 当包含要排除的 index 时，说明是重试，此时随机选择一个 upstream （包含标记为 backup 的 upstream）
 	if len(excludeIndex) > 0 {
+		candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !array.In(item.Index, excludeIndex) })
+		if len(candidates) == 0 {
+			return nil, -1
+		}
+
 		index := rand.Intn(len(candidates))
 		return candidates[index], candidates[index].Index
+	}
+
+	// 当没有要排除的 index 时，说明是正常请求，此时只会在非 backup 的 upstream 中选择
+	candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !item.Rule.Backup })
+	if len(candidates) == 0 {
+		// 排除掉 backup 的 upstream 后，如果没有 upstream 可用，则使用全部的 upstream
+		// 这种情况一般是所有的 upstream 都是 backup 的情况
+		// 此时，如果还是没有 upstream 可用，则返回错误
+		candidates = u.ups
+		if len(candidates) == 0 {
+			return nil, -1
+		}
 	}
 
 	switch u.policy {
@@ -73,8 +86,8 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 		return candidates[index], candidates[index].Index
 
 	case RoundRobinPolicy: // 轮询策略
-		u.lock.Lock()
-		defer u.lock.Unlock()
+		u.indexLock.Lock()
+		defer u.indexLock.Unlock()
 
 		u.index = (u.index + 1) % len(candidates)
 		return candidates[u.index], candidates[u.index].Index

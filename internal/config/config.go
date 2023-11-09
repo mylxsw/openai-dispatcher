@@ -52,7 +52,10 @@ type Rule struct {
 	Azure           bool           `yaml:"azure,omitempty" json:"azure,omitempty"`
 	AzureAPIVersion string         `yaml:"azure-api-version,omitempty" json:"azure-api-version,omitempty"`
 	Rewrite         []ModelRewrite `yaml:"rewrite,omitempty" json:"rewrite,omitempty"`
-	Default         bool           `yaml:"default,omitempty" json:"default,omitempty"`
+	// Default 默认规则
+	Default bool `yaml:"default,omitempty" json:"default,omitempty"`
+	// Backup 备用规则，默认不会使用，只有当出现错误时才会使用
+	Backup bool `yaml:"backup,omitempty" json:"backup,omitempty"`
 }
 
 type ModelRewrite struct {
