@@ -58,7 +58,7 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 			IdleConnTimeout:       30 * time.Second,
 			TLSHandshakeTimeout:   5 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
-			ResponseHeaderTimeout: 5 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
 		}
 	}
 
