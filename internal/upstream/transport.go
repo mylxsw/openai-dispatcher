@@ -7,6 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/proxy"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -42,7 +43,23 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 	// 代理转发
 	revProxy := httputil.NewSingleHostReverseProxy(target.url)
 	if target.dialer != nil {
-		revProxy.Transport = &http.Transport{Dial: target.dialer.Dial}
+		revProxy.Transport = &http.Transport{
+			Dial:                  target.dialer.Dial,
+			ResponseHeaderTimeout: 10 * time.Second,
+		}
+	} else {
+		revProxy.Transport = &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       30 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second,
+		}
 	}
 
 	originalDirector := revProxy.Director
