@@ -9,7 +9,7 @@ log-path: ""
 keys:
   - "f5e2758c4dc31cb8bd6a496b41dbb765"
 
-# 代理选择策略：round_robin、random
+# 代理选择策略：round_robin、random、weight
 policy: "round_robin"
 
 # 代理规则

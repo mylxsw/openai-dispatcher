@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/mylxsw/go-utils/array"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 	"os"
 )
 
@@ -20,8 +20,8 @@ type Config struct {
 func (conf *Config) Validate() error {
 	// TODO 检查配置是否正确
 
-	if !array.In(conf.Policy, []string{"random", "round_robin"}) {
-		return fmt.Errorf("policy 只支持 random 或 round_robin")
+	if conf.Policy != "" && !array.In(conf.Policy, []string{"random", "round_robin", "weight"}) {
+		return fmt.Errorf("policy 只支持 random、round_robin、weight")
 	}
 
 	for i, rule := range conf.Rules {
@@ -45,6 +45,7 @@ func (conf *Config) JSON() string {
 type Rules []Rule
 
 type Rule struct {
+	Name            string         `yaml:"name" json:"name,omitempty"`
 	Servers         []string       `yaml:"servers" json:"servers"`
 	Keys            []string       `yaml:"keys" json:"-"`
 	Models          []string       `yaml:"models" json:"models"`
@@ -56,6 +57,8 @@ type Rule struct {
 	Default bool `yaml:"default,omitempty" json:"default,omitempty"`
 	// Backup 备用规则，默认不会使用，只有当出现错误时才会使用
 	Backup bool `yaml:"backup,omitempty" json:"backup,omitempty"`
+	// Weight 权重，用于 weight 策略，默认值为 1，设置为负数则表示不使用该规则
+	Weight int `yaml:"weight,omitempty" json:"weight,omitempty"`
 }
 
 type ModelRewrite struct {

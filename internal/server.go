@@ -158,7 +158,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	log.F(log.M{"current": selectedIndex, "server": selected.Server, "key": selected.MaskedKey(), "candidates": ups.Len()}).
+	log.F(log.M{"current": selectedIndex, "target": selected.Name(), "candidates": ups.Len()}).
 		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
 
 	usedIndex := []int{selectedIndex}
@@ -170,7 +170,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		selected, selectedIndex = ups.Next(usedIndex...)
 		if selected != nil {
 			retryCount++
-			log.F(log.M{"next": selectedIndex, "used": usedIndex, "server": selected.Server, "key": selected.MaskedKey(), "candidates": ups.Len()}).
+			log.F(log.M{"next": selectedIndex, "used": usedIndex, "target": selected.Name(), "candidates": ups.Len()}).
 				Warningf("retry next upstream[%d]: %v", retryCount, err)
 
 			usedIndex = append(usedIndex, selectedIndex)

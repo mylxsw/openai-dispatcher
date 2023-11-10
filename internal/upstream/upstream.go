@@ -3,6 +3,7 @@ package upstream
 import (
 	"errors"
 	"fmt"
+	"github.com/mroth/weightedrand/v2"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
@@ -18,15 +19,27 @@ var (
 )
 
 type Upstream struct {
-	Rule    config.Rule
-	Index   int
-	Handler Handler
-	Server  string
-	Key     string
+	Rule        config.Rule
+	Index       int
+	Handler     Handler
+	ServerIndex int
+	KeyIndex    int
+}
+
+func (u *Upstream) Name() string {
+	if u.Rule.Name != "" {
+		return fmt.Sprintf("%s|s%d:k%d", u.Rule.Name, u.ServerIndex, u.KeyIndex)
+	}
+
+	return fmt.Sprintf("%s|%s", u.MaskedServer(), u.MaskedKey())
 }
 
 func (u *Upstream) MaskedKey() string {
-	return mask(10, u.Key)
+	return mask(10, u.Rule.Keys[u.KeyIndex])
+}
+
+func (u *Upstream) MaskedServer() string {
+	return u.Rule.Servers[u.ServerIndex]
 }
 
 type Handler interface {
@@ -39,6 +52,8 @@ type Upstreams struct {
 
 	index     int
 	indexLock sync.Mutex
+
+	chooser *weightedrand.Chooser[*Upstream, int]
 }
 
 type Policy string
@@ -46,10 +61,38 @@ type Policy string
 const (
 	RandomPolicy     Policy = "random"
 	RoundRobinPolicy Policy = "round_robin"
+	WeightPolicy     Policy = "weight"
 )
 
 func NewUpstreams(policy Policy) *Upstreams {
+	if policy == "" {
+		policy = RoundRobinPolicy
+	}
+
 	return &Upstreams{policy: policy, ups: make([]*Upstream, 0)}
+}
+
+func (u *Upstreams) init() error {
+	if u.policy == WeightPolicy {
+		choices := make([]weightedrand.Choice[*Upstream, int], len(u.ups))
+		for i, up := range u.ups {
+			weight := up.Rule.Weight
+			if weight == 0 {
+				weight = 1
+			}
+
+			choices[i] = weightedrand.NewChoice[*Upstream, int](up, weight)
+		}
+
+		chooser, err := weightedrand.NewChooser(choices...)
+		if err != nil {
+			return err
+		}
+
+		u.chooser = chooser
+	}
+
+	return nil
 }
 
 func (u *Upstreams) Len() int {
@@ -91,6 +134,9 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 
 		u.index = (u.index + 1) % len(candidates)
 		return candidates[u.index], candidates[u.index].Index
+	case WeightPolicy: // 权重策略
+		item := u.chooser.Pick()
+		return item, item.Index
 	default:
 		panic("unknown policy: " + u.policy)
 	}
@@ -98,7 +144,7 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 
 func (u *Upstreams) Print() {
 	for _, up := range u.ups {
-		fmt.Printf("    %s -> %s\n", up.Server, up.MaskedKey())
+		fmt.Printf("    %s -> %s\n", up.MaskedServer, up.MaskedKey())
 	}
 }
 
@@ -121,8 +167,8 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 				ups[model] = NewUpstreams(policy)
 			}
 
-			for _, server := range rule.Servers {
-				for _, key := range rule.Keys {
+			for serverIndex, server := range rule.Servers {
+				for keyIndex, key := range rule.Keys {
 					var handler Handler
 
 					if rule.Azure {
@@ -135,25 +181,35 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 					}
 
 					ups[model].ups = append(ups[model].ups, &Upstream{
-						Rule:    rule,
-						Handler: handler,
-						Index:   len(ups[model].ups),
-						Server:  server,
-						Key:     key,
+						Rule:        rule,
+						Handler:     handler,
+						Index:       len(ups[model].ups),
+						ServerIndex: serverIndex,
+						KeyIndex:    keyIndex,
 					})
 
 					if rule.Default {
 						defaultUps.ups = append(defaultUps.ups, &Upstream{
-							Rule:    rule,
-							Handler: handler,
-							Index:   len(defaultUps.ups),
-							Server:  server,
-							Key:     key,
+							Rule:        rule,
+							Handler:     handler,
+							Index:       len(defaultUps.ups),
+							ServerIndex: serverIndex,
+							KeyIndex:    keyIndex,
 						})
 					}
 				}
 			}
 		}
+	}
+
+	for _, up := range ups {
+		if err := up.init(); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if err := defaultUps.init(); err != nil {
+		return nil, nil, err
 	}
 
 	return ups, defaultUps, nil
