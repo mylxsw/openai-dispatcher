@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	LogPath string   `yaml:"log-path" json:"log-path,omitempty"`
-	Listen  string   `yaml:"listen" json:"listen,omitempty"`
-	Socks5  string   `yaml:"socks5" json:"socks5,omitempty"`
-	Keys    []string `yaml:"keys" json:"-"`
-	Policy  string   `yaml:"policy" json:"policy,omitempty"`
-	Rules   Rules    `yaml:"rules" json:"rules,omitempty"`
+	LogPath          string   `yaml:"log-path" json:"log-path,omitempty"`
+	Listen           string   `yaml:"listen" json:"listen,omitempty"`
+	Socks5           string   `yaml:"socks5" json:"socks5,omitempty"`
+	Keys             []string `yaml:"keys" json:"-"`
+	Policy           string   `yaml:"policy" json:"policy,omitempty"`
+	Rules            Rules    `yaml:"rules" json:"rules,omitempty"`
+	EnablePrometheus bool     `yaml:"enable-prometheus" json:"enable-prometheus,omitempty"`
 }
 
 func (conf *Config) Validate() error {

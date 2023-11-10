@@ -113,6 +113,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	var model string
 	if array.In(r.URL.Path, []string{
 		"/v1/chat/completions",
 		"/v1/completions",
@@ -125,7 +126,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		"/v1/moderations",
 		"/v1/embeddings",
 	}) {
-		model := gjson.Get(string(body), "model").String()
+		model = gjson.Get(string(body), "model").String()
 		if model == "" {
 			return ErrModelRequired
 		}
@@ -158,7 +159,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	log.F(log.M{"current": selectedIndex, "target": selected.Name(), "candidates": ups.Len()}).
+	log.F(log.M{"current": selectedIndex, "target": selected.Name(), "candidates": ups.Len(), "model": model}).
 		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
 
 	usedIndex := []int{selectedIndex}
@@ -170,7 +171,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		selected, selectedIndex = ups.Next(usedIndex...)
 		if selected != nil {
 			retryCount++
-			log.F(log.M{"next": selectedIndex, "used": usedIndex, "target": selected.Name(), "candidates": ups.Len()}).
+			log.F(log.M{"next": selectedIndex, "used": usedIndex, "target": selected.Name(), "candidates": ups.Len(), "model": model}).
 				Warningf("retry next upstream[%d]: %v", retryCount, err)
 
 			usedIndex = append(usedIndex, selectedIndex)
@@ -182,7 +183,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 			return
 		}
 
-		log.F(log.M{"used": usedIndex, "retry_count": retryCount}).Errorf("all upstreams failed: %v", err)
+		log.F(log.M{"used": usedIndex, "retry_count": retryCount, "model": model}).Errorf("all upstreams failed: %v", err)
 
 		var respErr upstream.ResponseError
 		if errors.As(err, &respErr) {

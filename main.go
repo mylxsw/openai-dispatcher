@@ -10,6 +10,7 @@ import (
 	"github.com/mylxsw/asteria/writer"
 	"github.com/mylxsw/openai-dispatcher/internal"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -40,7 +41,13 @@ func main() {
 		panic(fmt.Errorf("初始化服务失败：%v", err))
 	}
 
-	if err := http.ListenAndServe(conf.Listen, server); err != nil {
+	if conf.EnablePrometheus {
+		http.Handle("/metrics", promhttp.Handler())
+	}
+
+	http.Handle("/", server)
+
+	if err := http.ListenAndServe(conf.Listen, nil); err != nil {
 		panic(fmt.Errorf("启动服务失败：%v", err))
 	}
 }

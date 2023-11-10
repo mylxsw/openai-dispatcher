@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mroth/weightedrand/v2"
+	"github.com/mylxsw/asteria/color"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
@@ -74,14 +75,23 @@ func NewUpstreams(policy Policy) *Upstreams {
 
 func (u *Upstreams) init() error {
 	if u.policy == WeightPolicy {
-		choices := make([]weightedrand.Choice[*Upstream, int], len(u.ups))
-		for i, up := range u.ups {
-			weight := up.Rule.Weight
-			if weight == 0 {
-				weight = 1
+		choices := make([]weightedrand.Choice[*Upstream, int], 0)
+		// 默认只对非 backup 的 upstream 进行权重计算
+		for _, up := range u.ups {
+			if up.Rule.Backup {
+				continue
 			}
 
-			choices[i] = weightedrand.NewChoice[*Upstream, int](up, weight)
+			weight := ternary.If(up.Rule.Weight == 0, 1, up.Rule.Weight)
+			choices = append(choices, weightedrand.NewChoice[*Upstream, int](up, weight))
+		}
+
+		// 如果没有主要 upstream，则使用 backup 的 upstream
+		if len(choices) == 0 {
+			for _, up := range u.ups {
+				weight := ternary.If(up.Rule.Weight == 0, 1, up.Rule.Weight)
+				choices = append(choices, weightedrand.NewChoice[*Upstream, int](up, weight))
+			}
 		}
 
 		chooser, err := weightedrand.NewChooser(choices...)
@@ -144,7 +154,12 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 
 func (u *Upstreams) Print() {
 	for _, up := range u.ups {
-		fmt.Printf("    %s -> %s\n", up.MaskedServer, up.MaskedKey())
+		fmt.Printf(
+			"    -> %s %s %s\n",
+			ternary.If(up.Rule.Backup, color.TextWrap(color.LightGrey, "[backup]"), color.TextWrap(color.Green, "[main]  ")),
+			up.Name(),
+			ternary.If(u.policy == WeightPolicy, color.TextWrap(color.LightYellow, fmt.Sprintf(" (weight: %d)", ternary.If(up.Rule.Weight == 0, 1, up.Rule.Weight))), ""),
+		)
 	}
 }
 
