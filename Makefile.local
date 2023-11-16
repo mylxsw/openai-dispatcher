@@ -14,4 +14,10 @@ deploy-server-2:
 	ssh huawei-2 'mv /data/webroot/ai-server/openai-dispatcher /data/webroot/ai-server/openai-dispatcher.old && mv /data/webroot/ai-server/openai-dispatcher.new /data/webroot/ai-server/openai-dispatcher'
 	ssh huawei-2 'systemctl restart openai-dispatcher'
 
-.PHONY: build deploy deploy-server-1 deploy-server-2
+deploy-config:
+	scp config.prod.yaml huawei-1:/data/webroot/ai-server/etc/openai-dispatcher.yaml
+	scp config.prod.yaml huawei-2:/data/webroot/ai-server/etc/openai-dispatcher.yaml
+	ssh huawei-1 'systemctl restart openai-dispatcher'
+	ssh huawei-2 'systemctl restart openai-dispatcher'
+
+.PHONY: build deploy deploy-server-1 deploy-server-2 deploy-config
