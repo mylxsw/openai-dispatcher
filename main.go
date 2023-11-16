@@ -10,6 +10,7 @@ import (
 	"github.com/mylxsw/asteria/writer"
 	"github.com/mylxsw/openai-dispatcher/internal"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/mylxsw/openai-dispatcher/internal/upstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"path/filepath"
@@ -18,8 +19,10 @@ import (
 
 func main() {
 	var configFilePath string
+	var configTest bool
 
 	flag.StringVar(&configFilePath, "conf", "config.yaml", "配置文件路径")
+	flag.BoolVar(&configTest, "test", false, "测试配置文件")
 	flag.Parse()
 
 	conf, err := config.LoadConfig(configFilePath)
@@ -27,11 +30,30 @@ func main() {
 		panic(fmt.Errorf("加载配置文件失败：%v", err))
 	}
 
-	if conf.LogPath != "" {
+	if !configTest && conf.LogPath != "" {
 		log.All().LogFormatter(formatter.NewJSONFormatter())
 		log.All().LogWriter(writer.NewDefaultRotatingFileWriter(context.TODO(), func(le level.Level, module string) string {
 			return filepath.Join(conf.LogPath, fmt.Sprintf("%s.%s.log", le.GetLevelName(), time.Now().Format("20060102")))
 		}))
+	}
+
+	if configTest {
+		upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, conf.Validate(), nil)
+		if err != nil {
+			panic(fmt.Errorf("配置文件测试失败：%v", err))
+		}
+
+		fmt.Print("\n-------- 模型-Upstreams --------\n\n")
+		for model, ups := range upstreams {
+			fmt.Println(model)
+			ups.Print()
+			fmt.Println()
+		}
+
+		fmt.Print("\n-------- 默认-Upstreams --------\n\n")
+		defaultUpstreams.Print()
+
+		return
 	}
 
 	log.With(conf).Debugf("配置文件加载成功")
