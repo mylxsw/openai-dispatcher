@@ -74,6 +74,10 @@ func NewUpstreams(policy Policy) *Upstreams {
 }
 
 func (u *Upstreams) init() error {
+	if len(u.ups) == 0 {
+		return nil
+	}
+
 	if u.policy == WeightPolicy {
 		choices := make([]weightedrand.Choice[*Upstream, int], 0)
 		// 默认只对非 backup 的 upstream 进行权重计算
@@ -203,19 +207,38 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 						KeyIndex:    keyIndex,
 					})
 
-					if rule.Default {
+				}
+			}
+		}
+	}
 
-						dum := array.ToMap(defaultUps.ups, func(t *Upstream, _ int) string { return t.Rule.Name })
-						if _, ok := dum[rule.Name]; !ok {
-							defaultUps.ups = append(defaultUps.ups, &Upstream{
-								Rule:        rule,
-								Handler:     handler,
-								Index:       len(defaultUps.ups),
-								ServerIndex: serverIndex,
-								KeyIndex:    keyIndex,
-							})
-						}
+	for i, rule := range rules {
+		if !rule.Default {
+			continue
+		}
+
+		dum := array.ToMap(defaultUps.ups, func(t *Upstream, _ int) string { return t.Rule.Name })
+		if _, ok := dum[rule.Name]; !ok {
+			for serverIndex, server := range rule.Servers {
+				for keyIndex, key := range rule.Keys {
+					var handler Handler
+
+					if rule.Azure {
+						handler, err = NewAzureOpenAIUpstream(server, key, rule.AzureAPIVersion, ternary.If(rule.Proxy, dialer, nil))
+					} else {
+						handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
 					}
+					if err != nil {
+						return nil, nil, fmt.Errorf("创建 upstream 失败 #%d: %w", i+1, err)
+					}
+
+					defaultUps.ups = append(defaultUps.ups, &Upstream{
+						Rule:        rule,
+						Handler:     handler,
+						Index:       len(defaultUps.ups),
+						ServerIndex: serverIndex,
+						KeyIndex:    keyIndex,
+					})
 				}
 			}
 		}

@@ -1,6 +1,7 @@
 Makefile.local
 config.local.yaml
 config.prod.yaml
+config.vultr.yaml
 build/
 .idea/
 .vscode/
