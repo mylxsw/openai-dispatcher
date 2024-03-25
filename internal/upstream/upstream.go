@@ -204,13 +204,17 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 					})
 
 					if rule.Default {
-						defaultUps.ups = append(defaultUps.ups, &Upstream{
-							Rule:        rule,
-							Handler:     handler,
-							Index:       len(defaultUps.ups),
-							ServerIndex: serverIndex,
-							KeyIndex:    keyIndex,
-						})
+
+						dum := array.ToMap(defaultUps.ups, func(t *Upstream, _ int) string { return t.Rule.Name })
+						if _, ok := dum[rule.Name]; !ok {
+							defaultUps.ups = append(defaultUps.ups, &Upstream{
+								Rule:        rule,
+								Handler:     handler,
+								Index:       len(defaultUps.ups),
+								ServerIndex: serverIndex,
+								KeyIndex:    keyIndex,
+							})
+						}
 					}
 				}
 			}

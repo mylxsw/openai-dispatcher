@@ -21,5 +21,10 @@ deploy-config:
 restart-server:
 	ssh huawei-1 'systemctl restart openai-dispatcher'
 	ssh huawei-2 'systemctl restart openai-dispatcher'
+	
+deploy-vultr: build
+	scp build/release/openai-dispatcher vultr:/data/webroot/openai-dispatcher/openai-dispatcher.new
+	ssh vultr 'mv /data/webroot/openai-dispatcher/openai-dispatcher /data/webroot/openai-dispatcher/openai-dispatcher.old && mv /data/webroot/openai-dispatcher/openai-dispatcher.new /data/webroot/openai-dispatcher/openai-dispatcher'
+	ssh vultr 'systemctl restart openai-dispatcher'
 
-.PHONY: build deploy deploy-server-1 deploy-server-2 deploy-config restart-server
+.PHONY: build deploy deploy-server-1 deploy-server-2 deploy-config restart-server deploy-vultr

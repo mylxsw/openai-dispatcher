@@ -47,6 +47,10 @@ func NewServer(conf *config.Config) (*Server, error) {
 		ups.Print()
 	}
 
+	fmt.Println("-------- defaults ---------")
+
+	defaultUpstreams.Print()
+
 	return &Server{
 		conf:             conf,
 		upstreams:        upstreams,
@@ -133,7 +137,8 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 
 		ups = s.upstreams[model]
 		if ups == nil || ups.Len() == 0 {
-			return ErrNotSupport
+			// If no corresponding upstream is found, use the default upstream.
+			ups = s.defaultUpstreams
 		}
 
 		selected, selectedIndex = ups.Next()
