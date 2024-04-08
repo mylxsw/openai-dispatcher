@@ -164,7 +164,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	log.F(log.M{"current": selectedIndex, "target": selected.Name(), "candidates": ups.Len(), "model": model}).
+	log.F(log.M{"cur": selected.Name(), "candidates": ups.Len(), "model": model}).
 		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
 
 	usedIndex := []int{selectedIndex}
@@ -173,10 +173,11 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	retryCount := 0
 	retry = func(w http.ResponseWriter, r *http.Request, err error) {
 		// 如果当前 upstream 失败，则尝试下一个 upstream
+		cur := selected
 		selected, selectedIndex = ups.Next(usedIndex...)
 		if selected != nil {
 			retryCount++
-			log.F(log.M{"next": selectedIndex, "used": usedIndex, "target": selected.Name(), "candidates": ups.Len(), "model": model}).
+			log.F(log.M{"cur": cur.Name(), "used": usedIndex, "next": selected.Name(), "candidates": ups.Len(), "model": model}).
 				Warningf("retry next upstream[%d]: %v", retryCount, err)
 
 			usedIndex = append(usedIndex, selectedIndex)
