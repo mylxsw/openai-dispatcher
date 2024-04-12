@@ -87,6 +87,9 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 			if strings.Contains(parsed.Error(), "content_filter") {
 				return fmt.Errorf("%w | %w", ResponseError{Err: parsed, Resp: resp}, ErrUpstreamShouldRetry)
 			}
+		case 403:
+			// 403 错误
+			return fmt.Errorf("%w | %w", ResponseError{Err: parseErrorMessage(resp), Resp: resp}, ErrUpstreamShouldRetry)
 		case 404:
 			// 404 错误，应对 Azure 缺失特定模型的问题
 			parsed := parseErrorMessage(resp)
