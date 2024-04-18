@@ -75,3 +75,12 @@ rules:
       - gpt-3.5-turbo-instruct
       - dall-e-2
       - whisper-1
+
+  - name: "FastGPT"
+    servers:
+      - https://fastgpt.in/api
+    model-keys:
+      - model: aidea-customer-service
+        key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      - models: ["custom-mysql-expert", "custom-mysql-expert2"]
+        keys: ["sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]

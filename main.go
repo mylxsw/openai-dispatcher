@@ -21,13 +21,13 @@ func main() {
 	var configFilePath string
 	var configTest bool
 
-	flag.StringVar(&configFilePath, "conf", "config.yaml", "配置文件路径")
-	flag.BoolVar(&configTest, "test", false, "测试配置文件")
+	flag.StringVar(&configFilePath, "conf", "config.yaml", "Configuration file path")
+	flag.BoolVar(&configTest, "test", false, "Test profile")
 	flag.Parse()
 
 	conf, err := config.LoadConfig(configFilePath)
 	if err != nil {
-		panic(fmt.Errorf("加载配置文件失败：%v", err))
+		panic(fmt.Errorf("failed to load the configuration file：%v", err))
 	}
 
 	if !configTest && conf.LogPath != "" {
@@ -40,27 +40,27 @@ func main() {
 	if configTest {
 		upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, conf.Validate(), nil)
 		if err != nil {
-			panic(fmt.Errorf("配置文件测试失败：%v", err))
+			panic(fmt.Errorf("configuration file test failed：%v", err))
 		}
 
-		fmt.Print("\n-------- 模型-Upstreams --------\n\n")
+		fmt.Print("\n-------- Models-Upstreams --------\n\n")
 		for model, ups := range upstreams {
 			fmt.Println(model)
 			ups.Print()
 			fmt.Println()
 		}
 
-		fmt.Print("\n-------- 默认-Upstreams --------\n\n")
+		fmt.Print("\n-------- Default-Upstreams --------\n\n")
 		defaultUpstreams.Print()
 
 		return
 	}
 
-	log.With(conf).Debugf("配置文件加载成功")
+	log.With(conf).Debugf("The configuration file is successfully loaded")
 
 	server, err := internal.NewServer(conf)
 	if err != nil {
-		panic(fmt.Errorf("初始化服务失败：%v", err))
+		panic(fmt.Errorf("failed to initialize the service：%v", err))
 	}
 
 	if conf.EnablePrometheus {
@@ -70,6 +70,6 @@ func main() {
 	http.Handle("/", server)
 
 	if err := http.ListenAndServe(conf.Listen, nil); err != nil {
-		panic(fmt.Errorf("启动服务失败：%v", err))
+		panic(fmt.Errorf("service startup failure：%v", err))
 	}
 }

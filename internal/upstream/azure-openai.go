@@ -37,5 +37,5 @@ func (target *AzureOpenAIUpstream) Serve(w http.ResponseWriter, r *http.Request,
 	// TODO 暂未完成
 
 	w.WriteHeader(http.StatusBadRequest)
-	_, _ = w.Write([]byte(`{"error": "Azure 模式正在开发中，敬请期待"}`))
+	_, _ = w.Write([]byte(`{"error": "Azure mode is under development, so stay tuned"}`))
 }

@@ -58,7 +58,7 @@ func NewServer(conf *config.Config) (*Server, error) {
 	}, nil
 }
 
-// readRequestBody 读取请求的 Body
+// readRequestBody Read the Body of the request
 func (s *Server) readRequestBody(r *http.Request) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -77,7 +77,7 @@ func (s *Server) replaceRequestBody(r *http.Request, newBody []byte) {
 	r.ContentLength = int64(len(newBody))
 }
 
-// Request 代理请求对象
+// Request Proxy request object
 type Request struct {
 	Method      string              `json:"method,omitempty"`
 	URL         string              `json:"url,omitempty"`
@@ -86,7 +86,7 @@ type Request struct {
 	Body        []byte              `json:"body,omitempty"`
 }
 
-// buildRequest 构建代理请求对象
+// buildRequest Build the proxy request object
 func (s *Server) buildRequest(r *http.Request) (*Request, error) {
 	body, err := s.readRequestBody(r)
 	if err != nil {
@@ -106,7 +106,7 @@ var (
 	ErrNotSupport    = errors.New("not support")
 )
 
-// Dispatch 请求分发实现逻辑
+// Dispatch Request distribution implementation logic
 func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	var ups *upstream.Upstreams
 	var selected *upstream.Upstream
@@ -233,7 +233,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 分发请求
+	// Distribution request
 	if err := s.Dispatch(w, r); err != nil {
 		log.Errorf("dispatch request failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")

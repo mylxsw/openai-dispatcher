@@ -80,7 +80,7 @@ func (u *Upstreams) init() error {
 
 	if u.policy == WeightPolicy {
 		choices := make([]weightedrand.Choice[*Upstream, int], 0)
-		// 默认只对非 backup 的 upstream 进行权重计算
+		// By default, only the weight of non-backup upstream is calculated
 		for _, up := range u.ups {
 			if up.Rule.Backup {
 				continue
@@ -90,7 +90,7 @@ func (u *Upstreams) init() error {
 			choices = append(choices, weightedrand.NewChoice[*Upstream, int](up, weight))
 		}
 
-		// 如果没有主要 upstream，则使用 backup 的 upstream
+		// If there is no primary upstream, the backup upstream is used
 		if len(choices) == 0 {
 			for _, up := range u.ups {
 				weight := ternary.If(up.Rule.Weight == 0, 1, up.Rule.Weight)
@@ -114,7 +114,7 @@ func (u *Upstreams) Len() int {
 }
 
 func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
-	// 当包含要排除的 index 时，说明是重试，此时随机选择一个 upstream （包含标记为 backup 的 upstream）
+	// A retry is indicated when an index to exclude is included, in which case a random upstream (containing the upstream marked backup) is selected.
 	if len(excludeIndex) > 0 {
 		candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !array.In(item.Index, excludeIndex) })
 		if len(candidates) == 0 {
@@ -125,12 +125,11 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 		return candidates[index], candidates[index].Index
 	}
 
-	// 当没有要排除的 index 时，说明是正常请求，此时只会在非 backup 的 upstream 中选择
+	// If there is no index to exclude, it is a normal request and only the non-backup upstream is selected
 	candidates := array.Filter(u.ups, func(item *Upstream, _ int) bool { return !item.Rule.Backup })
 	if len(candidates) == 0 {
-		// 排除掉 backup 的 upstream 后，如果没有 upstream 可用，则使用全部的 upstream
-		// 这种情况一般是所有的 upstream 都是 backup 的情况
-		// 此时，如果还是没有 upstream 可用，则返回错误
+		// After the backup upstreams are excluded, if no upstreams are available, all upstreams are used.
+		// This is usually the case when all upstreams are backup, and if no upstreams are available, an error is returned
 		candidates = u.ups
 		if len(candidates) == 0 {
 			return nil, -1
@@ -138,17 +137,17 @@ func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
 	}
 
 	switch u.policy {
-	case RandomPolicy: // 随机策略
+	case RandomPolicy: // Stochastic strategy
 		index := rand.Intn(len(candidates))
 		return candidates[index], candidates[index].Index
 
-	case RoundRobinPolicy: // 轮询策略
+	case RoundRobinPolicy: // Polling strategy
 		u.indexLock.Lock()
 		defer u.indexLock.Unlock()
 
 		u.index = (u.index + 1) % len(candidates)
 		return candidates[u.index], candidates[u.index].Index
-	case WeightPolicy: // 权重策略
+	case WeightPolicy: // Weight strategy
 		item := u.chooser.Pick()
 		return item, item.Index
 	default:
@@ -196,7 +195,7 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 						handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
 					}
 					if err != nil {
-						return nil, nil, fmt.Errorf("创建 upstream 失败 #%d: %w", i+1, err)
+						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					}
 
 					ups[model].ups = append(ups[model].ups, &Upstream{
@@ -229,7 +228,7 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 						handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
 					}
 					if err != nil {
-						return nil, nil, fmt.Errorf("创建 upstream 失败 #%d: %w", i+1, err)
+						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					}
 
 					defaultUps.ups = append(defaultUps.ups, &Upstream{

@@ -1,4 +1,7 @@
 
+run:
+	go run main.go -conf config.yaml -test
+
 build:
 	go build -o build/debug/openai-dispatcher main.go
 
@@ -8,4 +11,4 @@ release:
 clean:
 	rm -fr build/
 
-.PHONY: build release clean
+.PHONY: run build release clean

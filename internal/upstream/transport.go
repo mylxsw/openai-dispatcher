@@ -16,11 +16,11 @@ import (
 )
 
 type TransparentUpstream struct {
-	// url 目标地址
+	// url Destination address
 	url *url.URL
-	// dialer 非空时，使用该 dialer 进行请求
+	// dialer When the dialer is not empty, the dialer is used for the request
 	dialer proxy.Dialer
-	// director 请求编辑
+	// director Request edit
 	director func(req *http.Request)
 }
 
@@ -40,7 +40,7 @@ func NewTransparentUpstream(server string, key string, dialer proxy.Dialer) (*Tr
 }
 
 func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
-	// 代理转发
+	// Proxy forwarding
 	revProxy := httputil.NewSingleHostReverseProxy(target.url)
 	if target.dialer != nil {
 		revProxy.Transport = &http.Transport{
@@ -82,22 +82,22 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 
 		switch resp.StatusCode {
 		case 400:
-			// 400 错误，应对 Azure 的内容筛选问题
+			// 400 Error Responding to a content filtering issue with Azure
 			parsed := parseErrorMessage(resp)
 			if strings.Contains(parsed.Error(), "content_filter") {
 				return fmt.Errorf("%w | %w", ResponseError{Err: parsed, Resp: resp}, ErrUpstreamShouldRetry)
 			}
 		case 403:
-			// 403 错误
+			// 403 mistake
 			return fmt.Errorf("%w | %w", ResponseError{Err: parseErrorMessage(resp), Resp: resp}, ErrUpstreamShouldRetry)
 		case 404:
-			// 404 错误，应对 Azure 缺失特定模型的问题
+			// 404 Error, addressing the lack of a specific model for Azure
 			parsed := parseErrorMessage(resp)
 			if strings.Contains(parsed.Error(), "DeploymentNotFound") {
 				return fmt.Errorf("%w | %w", ResponseError{Err: parsed, Resp: resp}, ErrUpstreamShouldRetry)
 			}
 		case 401, 429:
-			// 鉴权、流控错误
+			// Authentication and flow control errors
 			return fmt.Errorf("%w | %w", ResponseError{Err: parseErrorMessage(resp), Resp: resp}, ErrUpstreamShouldRetry)
 		}
 
