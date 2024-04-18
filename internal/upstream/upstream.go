@@ -195,7 +195,7 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 	defaultUps := NewUpstreams(policy)
 
 	for i, rule := range rules {
-		for _, model := range rule.Models {
+		for _, model := range rule.GetModels() {
 			if _, ok := ups[model]; !ok {
 				ups[model] = NewUpstreams(policy)
 			}

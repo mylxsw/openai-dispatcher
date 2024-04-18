@@ -69,6 +69,10 @@ type Rule struct {
 	Weight int `yaml:"weight,omitempty" json:"weight,omitempty"`
 }
 
+func (r Rule) GetModels() []string {
+	return array.Uniq(append(r.Models, array.Map(r.Rewrite, func(item ModelRewrite, _ int) string { return item.Src })...))
+}
+
 type ModelRewrite struct {
 	Src string `yaml:"src" json:"src"`
 	Dst string `yaml:"dst" json:"dst"`
