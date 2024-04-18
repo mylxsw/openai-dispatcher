@@ -1,6 +1,9 @@
 
 build:
 	GOOS=linux GOARCH=amd64 go build -o build/release/openai-dispatcher main.go
+	
+run:
+	go run main.go -conf config.local.yaml
 
 deploy: build deploy-server-1 deploy-server-2
 

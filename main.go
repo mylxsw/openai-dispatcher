@@ -30,11 +30,17 @@ func main() {
 		panic(fmt.Errorf("failed to load the configuration file：%v", err))
 	}
 
-	if !configTest && conf.LogPath != "" {
-		log.All().LogFormatter(formatter.NewJSONFormatter())
-		log.All().LogWriter(writer.NewDefaultRotatingFileWriter(context.TODO(), func(le level.Level, module string) string {
-			return filepath.Join(conf.LogPath, fmt.Sprintf("%s.%s.log", le.GetLevelName(), time.Now().Format("20060102")))
-		}))
+	if !configTest {
+		if conf.LogPath != "" {
+			log.All().LogFormatter(formatter.NewJSONFormatter())
+			log.All().LogWriter(writer.NewDefaultRotatingFileWriter(context.TODO(), func(le level.Level, module string) string {
+				return filepath.Join(conf.LogPath, fmt.Sprintf("%s.%s.log", le.GetLevelName(), time.Now().Format("20060102")))
+			}))
+		}
+
+		if !conf.Debug {
+			log.All().LogLevel(level.Info)
+		}
 	}
 
 	if configTest {

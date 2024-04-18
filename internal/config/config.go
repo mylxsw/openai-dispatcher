@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	LogPath          string   `yaml:"log-path" json:"log-path,omitempty"`
+	Debug            bool     `yaml:"debug" json:"debug,omitempty"`
 	Listen           string   `yaml:"listen" json:"listen,omitempty"`
 	Socks5           string   `yaml:"socks5" json:"socks5,omitempty"`
 	Keys             []string `yaml:"keys" json:"-"`
@@ -90,7 +91,7 @@ func LoadConfig(configFilePath string) (*Config, error) {
 		if rule.Type == "" {
 			rule.Type = ChannelTypeOpenAI
 		}
-		
+
 		if len(rule.ModelKeys) > 0 {
 			for i, modelKey := range rule.ModelKeys {
 				servers := modelKey.Servers

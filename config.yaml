@@ -4,6 +4,8 @@ listen: :8081
 socks5: 127.0.0.1:1080
 # 日志目录
 log-path: ""
+# 是否输出 Debug 日志
+debug: false
 # 是否启用 Prometheus metrics
 enable-prometheus: false
 
@@ -93,7 +95,7 @@ rules:
       - "pat_xxxxxxxxxxxxxxxxxxxxxxx"
     type: coze
     models:
-      - "coze-inspirational-coach" # 自定义一个模型名称
+      - coze-inspirational-coach # 自定义一个模型名称
     rewrite:
       - src: coze-inspirational-coach # models 中自定义的模型名称
         dst: "7359114777911705616" # Coze 的 bot_id，调用 Coze 接口时，会转换为对应的 bot_id

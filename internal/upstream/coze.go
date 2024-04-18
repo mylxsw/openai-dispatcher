@@ -223,7 +223,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 
 	defer func() {
 		if err := recover(); err != nil {
-			log.F(log.M{"type": "coze"}).Errorf("decode response failed: %v", err)
+			log.F(log.M{"type": "coze"}).Errorf("coze request panic: %v", err)
 
 			if outputMessage != "" {
 				finalMessage, _ := json.Marshal(openai.ChatCompletionStreamResponse{
@@ -249,6 +249,28 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 		data, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
+				if outputMessage == "" && len(data) > 0 {
+					var e ErrorInformation
+					if err := json.Unmarshal(data, &e); err == nil {
+						finalMessage, _ := json.Marshal(openai.ChatCompletionStreamResponse{
+							ID:      "final",
+							Object:  "chat.completion",
+							Created: time.Now().Unix(),
+							Model:   openaiReq.Model,
+							Choices: []openai.ChatCompletionStreamChoice{
+								{
+									FinishReason: "error",
+									Delta: openai.ChatCompletionStreamChoiceDelta{
+										Content: fmt.Sprintf("An Error Occurred: %s (%d)", strings.TrimSuffix(e.Msg, "\n"), e.Code),
+										Role:    "assistant",
+									},
+								},
+							},
+						})
+						_, _ = w.Write([]byte(fmt.Sprintf("data: %s\n\n", finalMessage)))
+					}
+				}
+
 				break
 			}
 
@@ -260,12 +282,12 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 			return ErrUpstreamShouldRetry
 		}
 
-		//log.Debugf("coze response: %s", string(data))
-
 		dataStr := strings.TrimSpace(string(data))
 		if dataStr == "" {
 			continue
 		}
+
+		log.Debugf("coze response: %s", string(data))
 
 		if !strings.HasPrefix(dataStr, "data:") {
 			continue
