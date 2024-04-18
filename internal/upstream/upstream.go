@@ -19,6 +19,21 @@ var (
 	ErrUpstreamShouldRetry = errors.New("upstream failed")
 )
 
+type Endpoint string
+
+const (
+	EndpointChatCompletion  Endpoint = "/v1/chat/completions"
+	EndpointCompletion      Endpoint = "/v1/completions"
+	EndpointImageGeneration Endpoint = "/v1/images/generations"
+	EndpointImageEdit       Endpoint = "/v1/images/edits"
+	EndpointImageVariation  Endpoint = "/v1/images/variations"
+	EndpointAudioSpeech     Endpoint = "/v1/audio/speech"
+	EndpointAudioTranscript Endpoint = "/v1/audio/transcriptions"
+	EndpointAudioTranslate  Endpoint = "/v1/audio/translations"
+	EndpointModeration      Endpoint = "/v1/moderations"
+	EndpointEmbedding       Endpoint = "/v1/embeddings"
+)
+
 type Upstream struct {
 	Rule        config.Rule
 	Index       int
@@ -187,25 +202,17 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					var handler Handler
-
-					if rule.Azure {
-						handler, err = NewAzureOpenAIUpstream(server, key, rule.AzureAPIVersion, ternary.If(rule.Proxy, dialer, nil))
-					} else {
-						handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
-					}
-					if err != nil {
+					if handler, err := resolveUpstreamHandler(rule, err, server, key, dialer); err != nil {
 						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
+					} else {
+						ups[model].ups = append(ups[model].ups, &Upstream{
+							Rule:        rule,
+							Handler:     handler,
+							Index:       len(ups[model].ups),
+							ServerIndex: serverIndex,
+							KeyIndex:    keyIndex,
+						})
 					}
-
-					ups[model].ups = append(ups[model].ups, &Upstream{
-						Rule:        rule,
-						Handler:     handler,
-						Index:       len(ups[model].ups),
-						ServerIndex: serverIndex,
-						KeyIndex:    keyIndex,
-					})
-
 				}
 			}
 		}
@@ -220,24 +227,17 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 		if _, ok := dum[rule.Name]; !ok {
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					var handler Handler
-
-					if rule.Azure {
-						handler, err = NewAzureOpenAIUpstream(server, key, rule.AzureAPIVersion, ternary.If(rule.Proxy, dialer, nil))
-					} else {
-						handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
-					}
-					if err != nil {
+					if handler, err := resolveUpstreamHandler(rule, err, server, key, dialer); err != nil {
 						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
+					} else {
+						defaultUps.ups = append(defaultUps.ups, &Upstream{
+							Rule:        rule,
+							Handler:     handler,
+							Index:       len(defaultUps.ups),
+							ServerIndex: serverIndex,
+							KeyIndex:    keyIndex,
+						})
 					}
-
-					defaultUps.ups = append(defaultUps.ups, &Upstream{
-						Rule:        rule,
-						Handler:     handler,
-						Index:       len(defaultUps.ups),
-						ServerIndex: serverIndex,
-						KeyIndex:    keyIndex,
-					})
 				}
 			}
 		}
@@ -254,4 +254,18 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 	}
 
 	return ups, defaultUps, nil
+}
+
+func resolveUpstreamHandler(rule config.Rule, err error, server string, key string, dialer proxy.Dialer) (Handler, error) {
+	var handler Handler
+
+	switch rule.Type {
+	case config.ChannelTypeAzure:
+		handler, err = NewAzureOpenAIUpstream(server, key, rule.AzureAPIVersion, ternary.If(rule.Proxy, dialer, nil))
+	case config.ChannelTypeCoze:
+		handler, err = NewCozeUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
+	default:
+		handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
+	}
+	return handler, err
 }

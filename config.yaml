@@ -16,7 +16,8 @@ policy: "round_robin"
 
 # 代理规则
 rules:
-  - # 服务器地址，不需要添加后面的 /v1
+  - type: openai # 类型，当前支持 openai/coze
+    # 服务器地址，不需要添加后面的 /v1
     # 多个服务器会随机负载均衡
     servers:
       - "https://api.openai.com"
@@ -82,5 +83,17 @@ rules:
     model-keys:
       - model: aidea-customer-service
         key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      - models: ["custom-mysql-expert", "custom-mysql-expert2"]
-        keys: ["sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"]
+      - models: [ "custom-mysql-expert", "custom-mysql-expert2" ]
+        keys: [ "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" ]
+
+  - name: Coze
+    servers:
+      - https://api.coze.com
+    keys:
+      - "pat_xxxxxxxxxxxxxxxxxxxxxxx"
+    type: coze
+    models:
+      - "coze-inspirational-coach" # 自定义一个模型名称
+    rewrite:
+      - src: coze-inspirational-coach # models 中自定义的模型名称
+        dst: "7359114777911705616" # Coze 的 bot_id，调用 Coze 接口时，会转换为对应的 bot_id

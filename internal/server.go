@@ -118,17 +118,17 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	var model string
-	if array.In(r.URL.Path, []string{
-		"/v1/chat/completions",
-		"/v1/completions",
-		"/v1/images/generations",
-		"/v1/images/edits",
-		"/v1/images/variations",
-		"/v1/audio/speech",
-		"/v1/audio/transcriptions",
-		"/v1/audio/translations",
-		"/v1/moderations",
-		"/v1/embeddings",
+	if array.In(upstream.Endpoint(strings.TrimSuffix(r.URL.Path, "/")), []upstream.Endpoint{
+		upstream.EndpointChatCompletion,
+		upstream.EndpointCompletion,
+		upstream.EndpointImageGeneration,
+		upstream.EndpointImageEdit,
+		upstream.EndpointImageVariation,
+		upstream.EndpointAudioSpeech,
+		upstream.EndpointAudioTranscript,
+		upstream.EndpointAudioTranslate,
+		upstream.EndpointModeration,
+		upstream.EndpointEmbedding,
 	}) {
 		model = gjson.Get(string(body), "model").String()
 		if model == "" {

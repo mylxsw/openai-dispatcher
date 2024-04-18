@@ -27,12 +27,8 @@ func (conf *Config) Validate() error {
 	}
 
 	for i, rule := range conf.Rules {
-		if rule.Azure && rule.Default {
-			return fmt.Errorf("azure rules cannot be set as default rules at this time #%d", i+1)
-		}
-
-		if rule.Azure {
-			return fmt.Errorf("azure mode is under development, so stay tuned #%d", i+1)
+		if array.In(rule.Type, []ChannelType{ChannelTypeAzure}) {
+			return fmt.Errorf("%s type is under development, so stay tuned #%d", rule.Type, i+1)
 		}
 	}
 
@@ -44,6 +40,14 @@ func (conf *Config) JSON() string {
 	return string(data)
 }
 
+type ChannelType string
+
+const (
+	ChannelTypeOpenAI ChannelType = "openai"
+	ChannelTypeAzure  ChannelType = "azure"
+	ChannelTypeCoze   ChannelType = "coze"
+)
+
 type Rules []Rule
 
 type Rule struct {
@@ -53,7 +57,7 @@ type Rule struct {
 	Models          []string       `yaml:"models" json:"models"`
 	ModelKeys       []ModelKey     `yaml:"model-keys" json:"model-keys"`
 	Proxy           bool           `yaml:"proxy,omitempty" json:"proxy,omitempty"`
-	Azure           bool           `yaml:"azure,omitempty" json:"azure,omitempty"`
+	Type            ChannelType    `yaml:"type,omitempty" json:"type,omitempty"`
 	AzureAPIVersion string         `yaml:"azure-api-version,omitempty" json:"azure-api-version,omitempty"`
 	Rewrite         []ModelRewrite `yaml:"rewrite,omitempty" json:"rewrite,omitempty"`
 	// Default Default rule
@@ -83,8 +87,17 @@ func LoadConfig(configFilePath string) (*Config, error) {
 	rules := make(Rules, 0)
 
 	for _, rule := range conf.Rules {
+		if rule.Type == "" {
+			rule.Type = ChannelTypeOpenAI
+		}
+		
 		if len(rule.ModelKeys) > 0 {
 			for i, modelKey := range rule.ModelKeys {
+				servers := modelKey.Servers
+				if modelKey.Server != "" {
+					servers = append(servers, modelKey.Server)
+				}
+
 				models := modelKey.Models
 				if modelKey.Model != "" {
 					models = append(models, modelKey.Model)
@@ -97,11 +110,11 @@ func LoadConfig(configFilePath string) (*Config, error) {
 
 				rules = append(rules, Rule{
 					Name:            fmt.Sprintf("%s-S(%d)", rule.Name, i),
-					Servers:         rule.Servers,
+					Servers:         ternary.If(len(servers) == 0, rule.Servers, servers),
 					Keys:            ternary.If(len(keys) == 0, rule.Keys, keys),
 					Models:          models,
 					Proxy:           rule.Proxy,
-					Azure:           rule.Azure,
+					Type:            rule.Type,
 					AzureAPIVersion: rule.AzureAPIVersion,
 					Rewrite:         array.Filter(rule.Rewrite, func(item ModelRewrite, _ int) bool { return array.In(item.Src, models) }),
 					Default:         rule.Default,
@@ -124,8 +137,10 @@ func LoadConfig(configFilePath string) (*Config, error) {
 }
 
 type ModelKey struct {
-	Model  string   `json:"model,omitempty"`
-	Models []string `json:"models,omitempty"`
-	Key    string   `json:"key,omitempty"`
-	Keys   []string `json:"keys,omitempty"`
+	Servers []string `json:"servers,omitempty"`
+	Server  string   `json:"server,omitempty"`
+	Model   string   `json:"model,omitempty"`
+	Models  []string `json:"models,omitempty"`
+	Key     string   `json:"key,omitempty"`
+	Keys    []string `json:"keys,omitempty"`
 }

@@ -34,7 +34,13 @@ func NewTransparentUpstream(server string, key string, dialer proxy.Dialer) (*Tr
 		url:    target,
 		dialer: dialer,
 		director: func(r *http.Request) {
-			r.Header.Set("Authorization", "Bearer "+key)
+			// When the request header X-User-Key is specified in the request, the user's own key is used
+			userKey := r.Header.Get("X-User-Key")
+			if userKey != "" {
+				r.Header.Set("Authorization", "Bearer "+userKey)
+			} else {
+				r.Header.Set("Authorization", "Bearer "+key)
+			}
 		},
 	}, nil
 }

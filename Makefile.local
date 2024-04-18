@@ -26,5 +26,10 @@ deploy-vultr: build
 	scp build/release/openai-dispatcher vultr:/data/webroot/openai-dispatcher/openai-dispatcher.new
 	ssh vultr 'mv /data/webroot/openai-dispatcher/openai-dispatcher /data/webroot/openai-dispatcher/openai-dispatcher.old && mv /data/webroot/openai-dispatcher/openai-dispatcher.new /data/webroot/openai-dispatcher/openai-dispatcher'
 	ssh vultr 'systemctl restart openai-dispatcher'
+	
+deploy-aliyun-app: build
+	scp build/release/openai-dispatcher aliyun-1:/data/webroot/openai-dispatcher/openai-dispatcher.new
+	ssh aliyun-1 'mv /data/webroot/openai-dispatcher/openai-dispatcher /data/webroot/openai-dispatcher/openai-dispatcher.old && mv /data/webroot/openai-dispatcher/openai-dispatcher.new /data/webroot/openai-dispatcher/openai-dispatcher'
+	ssh aliyun-1 'systemctl restart openai-dispatcher'
 
-.PHONY: build deploy deploy-server-1 deploy-server-2 deploy-config restart-server deploy-vultr
+.PHONY: build deploy deploy-server-1 deploy-server-2 deploy-config restart-server deploy-vultr deploy-aliyun-app
