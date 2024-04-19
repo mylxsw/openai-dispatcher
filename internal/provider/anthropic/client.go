@@ -1,0 +1,294 @@
+package anthropic
+
+import (
+	"context"
+	"github.com/mylxsw/asteria/log"
+	"github.com/mylxsw/go-utils/array"
+	"github.com/mylxsw/go-utils/ternary"
+	"github.com/mylxsw/openai-dispatcher/pkg/image"
+	"github.com/sashabaranov/go-openai"
+	"golang.org/x/net/proxy"
+	"net/http"
+)
+
+type Client struct {
+	apiKey    string
+	serverURL string
+	dialer    proxy.Dialer
+	client    *http.Client
+}
+
+func New(serverURL, apiKey string, dialer proxy.Dialer) *Client {
+	client := &http.Client{}
+	if dialer != nil {
+		client.Transport = &http.Transport{
+			Dial: dialer.Dial,
+		}
+	}
+
+	return &Client{
+		serverURL: ternary.If(serverURL == "", "https://api.anthropic.com", serverURL),
+		apiKey:    apiKey,
+		dialer:    dialer,
+		client:    client,
+	}
+}
+
+func (client *Client) convertRequest(openaiReq openai.ChatCompletionRequest) (*MessageRequest, error) {
+	var systemMessage string
+	var contextMessages []Message
+
+	for _, msg := range openaiReq.Messages {
+		if msg.Role == "system" {
+			if msg.Content != "" {
+				systemMessage = msg.Content
+			}
+		} else {
+			if msg.MultiContent != nil {
+				contents := make([]MessageContent, 0)
+				for _, ct := range msg.MultiContent {
+					item := MessageContent{Type: ternary.If(ct.Type == "text", "text", "image")}
+					if ct.Type == "text" {
+						item.Text = ct.Text
+					} else if ct.ImageURL != nil {
+						imageMimeType, err := image.Base64ImageMediaType(ct.ImageURL.URL)
+						if err != nil {
+							log.F(log.M{"url": ct.ImageURL.URL}).Errorf("parse image mime type failed: %v", err)
+							return nil, err
+						}
+
+						item.Source = NewImageSource(
+							imageMimeType,
+							image.RemoveImageBase64Prefix(ct.ImageURL.URL),
+						)
+					}
+
+					contents = append(contents, item)
+				}
+
+				contextMessages = append(contextMessages, Message{
+					Role:    msg.Role,
+					Content: contents,
+				})
+			} else {
+				contextMessages = append(contextMessages, NewTextMessage(msg.Role, msg.Content))
+			}
+		}
+	}
+
+	res := MessageRequest{
+		Model:       openaiReq.Model,
+		Messages:    contextMessages,
+		MaxTokens:   openaiReq.MaxTokens,
+		Stream:      openaiReq.Stream,
+		Temperature: float64(openaiReq.Temperature),
+		TopP:        float64(openaiReq.TopP),
+	}
+
+	if len(openaiReq.Tools) > 0 {
+		res.Tools = array.Map(
+			array.Filter(openaiReq.Tools, func(t openai.Tool, _ int) bool { return t.Function != nil }),
+			func(t openai.Tool, _ int) Tool {
+				return Tool{
+					Name:        t.Function.Name,
+					Description: t.Function.Description,
+					InputSchema: t.Function.Parameters,
+				}
+			},
+		)
+	}
+
+	if systemMessage != "" {
+		res.System = systemMessage
+	}
+
+	return &res, nil
+}
+
+func (client *Client) Completion(ctx context.Context, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (client *Client) CompletionStream(ctx context.Context, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+type MessageRequest struct {
+	// Model The model that will complete your prompt.
+	Model string `json:"model"`
+	// Messages The messages that you want Claude to complete.
+	Messages []Message `json:"messages"`
+	// System System prompt
+	System string `json:"system,omitempty"`
+	// MaxTokens The maximum number of tokens to generate before stopping.
+	// Note that our models may stop before reaching this maximum.
+	// This parameter only specifies the absolute maximum number of tokens to generate.
+	MaxTokens int `json:"max_tokens"`
+	// Stream Whether to incrementally stream the response using server-sent events.
+	Stream bool `json:"stream"`
+	// Temperature Amount of randomness injected into the response.
+	// Defaults to 1.0. Ranges from 0.0 to 1.0.
+	// Use temperature closer to 0.0 for analytical / multiple choice, and closer to 1.0 for creative and generative tasks.
+	Temperature float64 `json:"temperature,omitempty"`
+	// TopP Use nucleus sampling.
+	// In nucleus sampling, we compute the cumulative distribution over all the options for each subsequent token in
+	// decreasing probability order and cut it off once it reaches a particular probability specified by top_p.
+	// You should either alter temperature or top_p, but not both.
+	// Recommended for advanced use cases only. You usually only need to use temperature.
+	TopP float64 `json:"top_p,omitempty"`
+	// TopK only sample from the top K options for each subsequent token.
+	// Used to remove "long tail" low probability responses. Learn more technical details here.
+	// Recommended for advanced use cases only. You usually only need to use temperature.
+	TopK int `json:"top_k,omitempty"`
+
+	// Tools Definitions of tools that the model may use.
+	// If you include tools in your API request, the model may return tool_use content blocks that represent the model's use of those tools.
+	// You can then run those tools using the tool input generated by the model and then optionally return results back to the model using tool_result content blocks.
+	Tools []Tool `json:"tools,omitempty"`
+}
+
+type Tool struct {
+	// Name The name of the tool.
+	Name string `json:"name"`
+	// Description Optional, but strongly-recommended description of the tool.
+	Description string `json:"description,omitempty"`
+	// InputSchema JSON schema for the tool input shape that the model will produce in tool_use output content blocks.
+	InputSchema any `json:"input_schema"`
+}
+
+type Message struct {
+	// Role The role of the message.
+	Role string `json:"role"`
+	// Content The content of the message.
+	Content []MessageContent `json:"content"`
+}
+
+func NewTextMessage(role string, text string) Message {
+	return Message{
+		Role:    role,
+		Content: []MessageContent{{Type: "text", Text: text}},
+	}
+}
+
+type MessageContent struct {
+	// Type The type of the message, support "text", "image"
+	Type string `json:"type"`
+	// Text The text of the message. Required if type is "text".
+	Text string `json:"text,omitempty"`
+	// Source The source of the image. Required if type is "image".
+	Source *ImageSource `json:"source,omitempty"`
+}
+
+func NewImageSource(mediaType, data string) *ImageSource {
+	return &ImageSource{
+		Type:      "base64",
+		MediaType: mediaType,
+		Data:      data,
+	}
+}
+
+type ImageSource struct {
+	// Type The type of the image source, only support "base64"
+	Type string `json:"type"`
+	// Data The base64 encoded image data, such as image/jpeg, image/png, image/gif, image/webp.
+	MediaType string `json:"media_type"`
+	// Data The base64 encoded image data.
+	Data string `json:"data"`
+}
+
+type MessageResponse struct {
+	// ID Unique object identifier.
+	// The format and length of IDs may change over time.
+	ID string `json:"id,omitempty"`
+	// Type Object type.
+	// For Messages, this is always "message".
+	Type string `json:"type,omitempty"`
+	// Role Conversational role of the generated message.
+	//This will always be "assistant".
+	Role string `json:"role,omitempty"`
+	// Content generated by the model.
+	// This is an array of content blocks, each of which has a type that determines its shape.
+	// Currently, the only type in responses is "text"
+	Content []MessageResponseContent `json:"content,omitempty"`
+	// Model The model that handled the request.
+	Model string `json:"model,omitempty"`
+	// StopReason The reason that we stopped.
+	// This may be one the following values:
+	// - "end_turn": the model reached a natural stopping point
+	// - "max_tokens": we exceeded the requested max_tokens or the model's maximum
+	// - "stop_sequence": one of your provided custom stop_sequences was generated
+	// Note that these values are different than those in /v1/complete, where end_turn and stop_sequence were not differentiated.
+	// In non-streaming mode this value is always non-null. In streaming mode, it is null in the message_start event and non-null otherwise.
+	StopReason string `json:"stop_reason,omitempty"`
+	// StopSequence Which custom stop sequence was generated, if any.
+	// This value will be a non-null string if one of your custom stop sequences was generated.
+	StopSequence string `json:"stop_sequence,omitempty"`
+	// Usage Billing and rate-limit usage.
+	// Anthropic's API bills and rate-limits by token counts, as tokens represent the underlying cost to our systems.
+	// Under the hood, the API transforms requests into a format suitable for the model.
+	// The model's output then goes through a parsing stage before becoming an API response.
+	// As a result, the token counts in usage will not match one-to-one with the exact visible content of an API request or response.
+	// For example, output_tokens will be non-zero, even for an empty string response from Claude.
+	Usage *Usage `json:"usage,omitempty"`
+
+	// Error 错误信息
+	Error *ResponseError `json:"error,omitempty"`
+}
+
+func (resp MessageResponse) Text() string {
+	var res string
+	for _, content := range resp.Content {
+		res += content.Text
+	}
+
+	return res
+}
+
+type Usage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+}
+
+type MessageResponseContent struct {
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
+type MessageStreamResponse struct {
+	// Type Each event will use an SSE event name (e.g. event: message_stop), and include the matching event type in its data.
+	// Each stream uses the following event flow:
+	// - message_start: contains a Message object with empty content.
+	// A series of content blocks, each of which have a content_block_start,
+	// one or more content_block_delta events, and a content_block_stop event.
+	// Each content block will have an index that corresponds to its index in the final Message content array.
+	// One or more message_delta events, indicating top-level changes to the final Message object.
+	// A final message_stop event.
+	Type  string        `json:"type"`
+	Index int           `json:"index,omitempty"`
+	Delta *MessageDelta `json:"delta,omitempty"`
+	// Error 错误信息
+	Error *ResponseError `json:"error,omitempty"`
+}
+
+func (res MessageStreamResponse) Text() string {
+	if res.Delta != nil {
+		return res.Delta.Text
+	}
+
+	return ""
+}
+
+type MessageDelta struct {
+	Type         string `json:"type,omitempty"`
+	Text         string `json:"text,omitempty"`
+	StopReason   string `json:"stop_reason,omitempty"`
+	StopSequence string `json:"stop_sequence,omitempty"`
+	Usage        *Usage `json:"usage,omitempty"`
+}
+
+type ResponseError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}

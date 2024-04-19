@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/go-utils/ternary"
+	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"gopkg.in/yaml.v3"
 	"os"
 )
@@ -28,7 +29,7 @@ func (conf *Config) Validate() error {
 	}
 
 	for i, rule := range conf.Rules {
-		if array.In(rule.Type, []ChannelType{ChannelTypeAzure}) {
+		if !array.In(rule.Type, []base.ChannelType{base.ChannelTypeOpenAI, base.ChannelTypeCoze}) {
 			return fmt.Errorf("%s type is under development, so stay tuned #%d", rule.Type, i+1)
 		}
 	}
@@ -41,26 +42,18 @@ func (conf *Config) JSON() string {
 	return string(data)
 }
 
-type ChannelType string
-
-const (
-	ChannelTypeOpenAI ChannelType = "openai"
-	ChannelTypeAzure  ChannelType = "azure"
-	ChannelTypeCoze   ChannelType = "coze"
-)
-
 type Rules []Rule
 
 type Rule struct {
-	Name            string         `yaml:"name" json:"name,omitempty"`
-	Servers         []string       `yaml:"servers" json:"servers"`
-	Keys            []string       `yaml:"keys" json:"-"`
-	Models          []string       `yaml:"models" json:"models"`
-	ModelKeys       []ModelKey     `yaml:"model-keys" json:"model-keys"`
-	Proxy           bool           `yaml:"proxy,omitempty" json:"proxy,omitempty"`
-	Type            ChannelType    `yaml:"type,omitempty" json:"type,omitempty"`
-	AzureAPIVersion string         `yaml:"azure-api-version,omitempty" json:"azure-api-version,omitempty"`
-	Rewrite         []ModelRewrite `yaml:"rewrite,omitempty" json:"rewrite,omitempty"`
+	Name            string           `yaml:"name" json:"name,omitempty"`
+	Servers         []string         `yaml:"servers" json:"servers"`
+	Keys            []string         `yaml:"keys" json:"-"`
+	Models          []string         `yaml:"models" json:"models"`
+	ModelKeys       []ModelKey       `yaml:"model-keys" json:"model-keys"`
+	Proxy           bool             `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	Type            base.ChannelType `yaml:"type,omitempty" json:"type,omitempty"`
+	AzureAPIVersion string           `yaml:"azure-api-version,omitempty" json:"azure-api-version,omitempty"`
+	Rewrite         []ModelRewrite   `yaml:"rewrite,omitempty" json:"rewrite,omitempty"`
 	// Default Default rule
 	Default bool `yaml:"default,omitempty" json:"default,omitempty"`
 	// Backup Alternate rule, which is not used by default and is used only when an error occurs
@@ -93,7 +86,7 @@ func LoadConfig(configFilePath string) (*Config, error) {
 
 	for _, rule := range conf.Rules {
 		if rule.Type == "" {
-			rule.Type = ChannelTypeOpenAI
+			rule.Type = base.ChannelTypeOpenAI
 		}
 
 		if len(rule.ModelKeys) > 0 {

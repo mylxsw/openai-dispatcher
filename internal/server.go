@@ -2,11 +2,13 @@ package internal
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/mylxsw/openai-dispatcher/internal/upstream"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -117,18 +119,21 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var model string
-	if array.In(upstream.Endpoint(strings.TrimSuffix(r.URL.Path, "/")), []upstream.Endpoint{
-		upstream.EndpointChatCompletion,
-		upstream.EndpointCompletion,
-		upstream.EndpointImageGeneration,
-		upstream.EndpointImageEdit,
-		upstream.EndpointImageVariation,
-		upstream.EndpointAudioSpeech,
-		upstream.EndpointAudioTranscript,
-		upstream.EndpointAudioTranslate,
-		upstream.EndpointModeration,
-		upstream.EndpointEmbedding,
+	if array.In(base.Endpoint(strings.TrimSuffix(r.URL.Path, "/")), []base.Endpoint{
+		base.EndpointChatCompletion,
+		base.EndpointCompletion,
+		base.EndpointImageGeneration,
+		base.EndpointImageEdit,
+		base.EndpointImageVariation,
+		base.EndpointAudioSpeech,
+		base.EndpointAudioTranscript,
+		base.EndpointAudioTranslate,
+		base.EndpointModeration,
+		base.EndpointEmbedding,
 	}) {
 		model = gjson.Get(string(body), "model").String()
 		if model == "" {
@@ -185,13 +190,13 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 			_ = r.Body.Close()
 			r.Body = io.NopCloser(bytes.NewBuffer(body))
 
-			selected.Handler.Serve(w, r, retry)
+			selected.Handler.Serve(ctx, w, r, retry)
 			return
 		}
 
 		log.F(log.M{"used": usedIndex, "retry_count": retryCount, "model": model}).Errorf("all upstreams failed: %v", err)
 
-		var respErr upstream.ResponseError
+		var respErr base.ResponseError
 		if errors.As(err, &respErr) {
 			for k, v := range respErr.Resp.Header {
 				for _, vv := range v {
@@ -212,7 +217,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	selected.Handler.Serve(w, r, retry)
+	selected.Handler.Serve(ctx, w, r, retry)
 
 	return nil
 }

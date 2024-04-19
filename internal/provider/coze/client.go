@@ -1,12 +1,15 @@
-package upstream
+package coze
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/go-utils/ternary"
+	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
+	"github.com/mylxsw/openai-dispatcher/pkg/token"
 	"github.com/sashabaranov/go-openai"
 	"golang.org/x/net/proxy"
 	"io"
@@ -16,61 +19,39 @@ import (
 	"time"
 )
 
-type CozeUpstream struct {
+type Client struct {
 	// url Destination address
 	url string
 	// dialer When the dialer is not empty, the dialer is used for the request
 	dialer proxy.Dialer
 	// key API key
 	key string
+
+	client *http.Client
 }
 
-func NewCozeUpstream(server string, key string, dialer proxy.Dialer) (*CozeUpstream, error) {
+func New(server string, key string, dialer proxy.Dialer) base.Provider {
 	server = strings.TrimRight(server, "/")
 	if !strings.HasSuffix(server, "/open_api/v2/chat") {
 		server = server + "/open_api/v2/chat"
 	}
 
-	return &CozeUpstream{
+	client := &http.Client{}
+	if dialer != nil {
+		client.Transport = &http.Transport{
+			Dial: dialer.Dial,
+		}
+	}
+
+	return &Client{
 		url:    server,
 		dialer: dialer,
 		key:    key,
-	}, nil
-}
-
-func (up *CozeUpstream) Serve(w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
-	if !array.In(Endpoint(strings.TrimSuffix(r.URL.Path, "/")), []Endpoint{EndpointChatCompletion}) {
-		log.F(log.M{"endpoint": r.URL.Path, "type": "coze"}).Warningf("unsupported endpoint for coze: %s", r.URL.Path)
-		errorHandler(w, r, ErrUpstreamShouldRetry)
-		return
-	}
-
-	var req openai.ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.F(log.M{"type": "coze"}).Errorf("decode request failed: %v", err)
-		errorHandler(w, r, ErrUpstreamShouldRetry)
-		return
-	}
-
-	client := &http.Client{}
-	if up.dialer != nil {
-		client.Transport = &http.Transport{
-			Dial: up.dialer.Dial,
-		}
-	}
-
-	if req.Stream {
-		if err := up.streamHandler(client, req, w); err != nil {
-			errorHandler(w, r, err)
-		}
-	} else {
-		if err := up.nonStreamHandler(client, req, w); err != nil {
-			errorHandler(w, r, err)
-		}
+		client: client,
 	}
 }
 
-type CozeRequest struct {
+type Request struct {
 	// BotID The ID of the bot that the API interacts with.
 	// Go to the Develop page of your Coze bot. The number after the bot parameter in the page URL is the bot ID.
 	// For example: https://www.coze.com/space/73428668341****/bot/73428668*****. The bot ID is73428668*****.
@@ -88,7 +69,7 @@ type CozeRequest struct {
 	// - chat_history is a list containing the user request and conversation data returned by the API. For details, refer to the Message structure in the Response parameters section.
 	// - The whole list is sorted in ascending order of time. That is, the latest message of the previous conversation appears at the end of the list.
 	// - (Optional) Pass the intermediate results returned by the API back through the chat history and insert them into the chat_history in ascending order by index.
-	ChatHistory []CozeMessage `json:"chat_history,omitempty"`
+	ChatHistory []Message `json:"chat_history,omitempty"`
 	// Stream Whether to stream the response to the client.
 	// - false: if no value is specified or set to false, a non-streaming response is returned.
 	//   "Non-streaming response" means that all responses will be returned at once after they are all ready,
@@ -101,12 +82,12 @@ type CozeRequest struct {
 	CustomVariables map[string]string `json:"custom_variables,omitempty"`
 }
 
-type CozeResponse struct {
+type Response struct {
 	// ConversationID The ID of the conversation
 	ConversationID string `json:"conversation_id,omitempty"`
 	// Messages The completed messages returned in JSON array.
 	// For details, refer to the Message structure in the Response parameters section.
-	Messages []CozeMessage `json:"messages"`
+	Messages []Message `json:"messages"`
 	// Code The ID of the code. 0 represents a successful call.
 	Code int `json:"code,omitempty"`
 	// Msg The message of the request.
@@ -131,7 +112,7 @@ type CozeResponse struct {
 	// Index The identifier of the message. Each unique index corresponds to a single message.
 	Index int `json:"index,omitempty"`
 	// Message Incremental response messages in stream mode
-	Message CozeMessage `json:"message,omitempty"`
+	Message Message `json:"message,omitempty"`
 
 	ErrorInformation ErrorInformation `json:"error_information,omitempty"`
 }
@@ -141,7 +122,7 @@ type ErrorInformation struct {
 	Msg  string `json:"msg,omitempty"`
 }
 
-type CozeMessage struct {
+type Message struct {
 	// Role The role who returns the message
 	// user: the content from user input
 	// assistant: returned by bot
@@ -159,13 +140,13 @@ type CozeMessage struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
-func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
-	cozeReq := CozeRequest{
+func (client *Client) CompletionStream(ctx context.Context, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
+	cozeReq := Request{
 		BotID:  openaiReq.Model,
 		User:   "apiuser",
 		Stream: true,
 		Query:  openaiReq.Messages[len(openaiReq.Messages)-1].Content,
-		ChatHistory: array.Map(openaiReq.Messages[:len(openaiReq.Messages)-1], func(item openai.ChatCompletionMessage, _ int) CozeMessage {
+		ChatHistory: array.Map(openaiReq.Messages[:len(openaiReq.Messages)-1], func(item openai.ChatCompletionMessage, _ int) Message {
 			content := item.Content
 			if content == "" && len(item.MultiContent) > 0 {
 				for _, c := range item.MultiContent {
@@ -175,7 +156,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 				}
 			}
 
-			return CozeMessage{
+			return Message{
 				Role:        item.Role,
 				Content:     content,
 				ContentType: "text",
@@ -187,36 +168,36 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 	body, err := json.Marshal(cozeReq)
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("marshal request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	log.Debug("coze request: ", string(body))
 
-	req, err := http.NewRequest("POST", up.url, strings.NewReader(string(body)))
+	req, err := http.NewRequest("POST", client.url, strings.NewReader(string(body)))
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("create request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	userKey := req.Header.Get("X-User-Key")
 	if userKey == "" {
-		req.Header.Set("Authorization", "Bearer "+up.key)
+		req.Header.Set("Authorization", "Bearer "+client.key)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+userKey)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.client.Do(req)
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusBadRequest {
 		data, _ := io.ReadAll(resp.Body)
 		log.F(log.M{"type": "coze"}).Errorf("request failed: %s", string(data))
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	var outputMessage string
@@ -279,7 +260,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 			}
 
 			log.F(log.M{"type": "coze"}).Errorf("read response failed: %v", err)
-			return ErrUpstreamShouldRetry
+			return base.ErrUpstreamShouldRetry
 		}
 
 		dataStr := strings.TrimSpace(string(data))
@@ -295,14 +276,14 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 
 		dataStr = strings.TrimSpace(dataStr[5:])
 
-		var cozeResp CozeResponse
+		var cozeResp Response
 		if err := json.Unmarshal([]byte(dataStr), &cozeResp); err != nil {
 			if outputMessage != "" {
 				panic(fmt.Errorf("decode response failed: %v", err))
 			}
 
 			log.F(log.M{"type": "coze"}).Errorf("decode response failed: %v", err)
-			return ErrUpstreamShouldRetry
+			return base.ErrUpstreamShouldRetry
 		}
 
 		if cozeResp.Event == "error" {
@@ -311,7 +292,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 			}
 
 			log.F(log.M{"type": "coze"}).Errorf("chat failed: %s", cozeResp.ErrorInformation.Msg)
-			return ErrUpstreamShouldRetry
+			return base.ErrUpstreamShouldRetry
 		}
 
 		if cozeResp.Event == "message" && cozeResp.Message.Type == "answer" {
@@ -320,7 +301,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 				Object:  "chat.completion.chunk",
 				Created: time.Now().Unix(),
 				Model:   openaiReq.Model,
-				Choices: array.Map([]CozeMessage{cozeResp.Message}, func(item CozeMessage, i int) openai.ChatCompletionStreamChoice {
+				Choices: array.Map([]Message{cozeResp.Message}, func(item Message, i int) openai.ChatCompletionStreamChoice {
 					return openai.ChatCompletionStreamChoice{
 						Index: i,
 						Delta: openai.ChatCompletionStreamChoiceDelta{
@@ -350,13 +331,13 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 	return nil
 }
 
-func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
-	cozeReq := CozeRequest{
+func (client *Client) Completion(ctx context.Context, openaiReq openai.ChatCompletionRequest, w http.ResponseWriter) error {
+	cozeReq := Request{
 		BotID:  openaiReq.Model,
 		User:   "apiuser",
 		Stream: false,
 		Query:  openaiReq.Messages[len(openaiReq.Messages)-1].Content,
-		ChatHistory: array.Map(openaiReq.Messages, func(item openai.ChatCompletionMessage, _ int) CozeMessage {
+		ChatHistory: array.Map(openaiReq.Messages, func(item openai.ChatCompletionMessage, _ int) Message {
 			content := item.Content
 			if content == "" && len(item.MultiContent) > 0 {
 				for _, c := range item.MultiContent {
@@ -366,7 +347,7 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 				}
 			}
 
-			return CozeMessage{
+			return Message{
 				Role:        item.Role,
 				Content:     content,
 				ContentType: "text",
@@ -378,44 +359,44 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 	body, err := json.Marshal(cozeReq)
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("marshal request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
-	req, err := http.NewRequest("POST", up.url, strings.NewReader(string(body)))
+	req, err := http.NewRequest("POST", client.url, strings.NewReader(string(body)))
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("create request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	userKey := req.Header.Get("X-User-Key")
 	if userKey == "" {
-		req.Header.Set("Authorization", "Bearer "+up.key)
+		req.Header.Set("Authorization", "Bearer "+client.key)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+userKey)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.client.Do(req)
 	if err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("request failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.F(log.M{"type": "coze"}).Errorf("request failed: %d", resp.StatusCode)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
-	var cozeResp CozeResponse
+	var cozeResp Response
 	if err := json.NewDecoder(resp.Body).Decode(&cozeResp); err != nil {
 		log.F(log.M{"type": "coze"}).Errorf("decode response failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	if cozeResp.Code != 0 {
 		log.F(log.M{"type": "coze"}).Errorf("chat failed: %s", cozeResp.Msg)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	log.With(cozeResp).Debugf("coze non-stream response")
@@ -423,8 +404,8 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 	openaiResp := openai.ChatCompletionResponse{
 		Model: openaiReq.Model,
 		Choices: array.Map(
-			array.Filter(cozeResp.Messages, func(item CozeMessage, i int) bool { return item.Type == "answer" }),
-			func(item CozeMessage, i int) openai.ChatCompletionChoice {
+			array.Filter(cozeResp.Messages, func(item Message, i int) bool { return item.Type == "answer" }),
+			func(item Message, i int) openai.ChatCompletionChoice {
 				return openai.ChatCompletionChoice{
 					Index: i,
 					Message: openai.ChatCompletionMessage{
@@ -439,7 +420,7 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 	messages := append([]openai.ChatCompletionMessage{}, openaiReq.Messages...)
 	messages = append(messages, array.Map(
 		cozeResp.Messages,
-		func(item CozeMessage, i int) openai.ChatCompletionMessage {
+		func(item Message, i int) openai.ChatCompletionMessage {
 			return openai.ChatCompletionMessage{
 				Role:    item.Role,
 				Content: item.Content,
@@ -447,8 +428,8 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 		},
 	)...)
 
-	inputTokens, _ := MessageTokenCount(openaiReq.Messages, openaiReq.Model)
-	totalTokens, _ := MessageTokenCount(messages, openaiReq.Model)
+	inputTokens, _ := token.MessageTokenCount(openaiReq.Messages, openaiReq.Model)
+	totalTokens, _ := token.MessageTokenCount(messages, openaiReq.Model)
 	if totalTokens < inputTokens {
 		totalTokens = inputTokens + 200
 	}
@@ -463,7 +444,7 @@ func (up *CozeUpstream) nonStreamHandler(client *http.Client, openaiReq openai.C
 	if err := json.NewEncoder(w).Encode(openaiResp); err != nil {
 		w.Header().Del("Content-Type")
 		log.F(log.M{"type": "coze"}).Errorf("encode response failed: %v", err)
-		return ErrUpstreamShouldRetry
+		return base.ErrUpstreamShouldRetry
 	}
 
 	return nil

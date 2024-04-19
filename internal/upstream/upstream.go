@@ -1,43 +1,24 @@
 package upstream
 
 import (
-	"errors"
 	"fmt"
 	"github.com/mroth/weightedrand/v2"
 	"github.com/mylxsw/asteria/color"
 	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/mylxsw/openai-dispatcher/internal/provider"
+	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"golang.org/x/net/proxy"
 	"math/rand"
-	"net/http"
 	"strings"
 	"sync"
-)
-
-var (
-	ErrUpstreamShouldRetry = errors.New("upstream failed")
-)
-
-type Endpoint string
-
-const (
-	EndpointChatCompletion  Endpoint = "/v1/chat/completions"
-	EndpointCompletion      Endpoint = "/v1/completions"
-	EndpointImageGeneration Endpoint = "/v1/images/generations"
-	EndpointImageEdit       Endpoint = "/v1/images/edits"
-	EndpointImageVariation  Endpoint = "/v1/images/variations"
-	EndpointAudioSpeech     Endpoint = "/v1/audio/speech"
-	EndpointAudioTranscript Endpoint = "/v1/audio/transcriptions"
-	EndpointAudioTranslate  Endpoint = "/v1/audio/translations"
-	EndpointModeration      Endpoint = "/v1/moderations"
-	EndpointEmbedding       Endpoint = "/v1/embeddings"
 )
 
 type Upstream struct {
 	Rule        config.Rule
 	Index       int
-	Handler     Handler
+	Handler     base.Handler
 	ServerIndex int
 	KeyIndex    int
 }
@@ -56,10 +37,6 @@ func (u *Upstream) MaskedKey() string {
 
 func (u *Upstream) MaskedServer() string {
 	return u.Rule.Servers[u.ServerIndex]
-}
-
-type Handler interface {
-	Serve(w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error))
 }
 
 type Upstreams struct {
@@ -202,7 +179,7 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					if handler, err := resolveUpstreamHandler(rule, err, server, key, dialer); err != nil {
+					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil)); err != nil {
 						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					} else {
 						ups[model].ups = append(ups[model].ups, &Upstream{
@@ -227,7 +204,7 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 		if _, ok := dum[rule.Name]; !ok {
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					if handler, err := resolveUpstreamHandler(rule, err, server, key, dialer); err != nil {
+					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil)); err != nil {
 						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					} else {
 						defaultUps.ups = append(defaultUps.ups, &Upstream{
@@ -254,18 +231,4 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 	}
 
 	return ups, defaultUps, nil
-}
-
-func resolveUpstreamHandler(rule config.Rule, err error, server string, key string, dialer proxy.Dialer) (Handler, error) {
-	var handler Handler
-
-	switch rule.Type {
-	case config.ChannelTypeAzure:
-		handler, err = NewAzureOpenAIUpstream(server, key, rule.AzureAPIVersion, ternary.If(rule.Proxy, dialer, nil))
-	case config.ChannelTypeCoze:
-		handler, err = NewCozeUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
-	default:
-		handler, err = NewTransparentUpstream(server, key, ternary.If(rule.Proxy, dialer, nil))
-	}
-	return handler, err
 }

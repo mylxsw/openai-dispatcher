@@ -1,9 +1,11 @@
-package upstream
+package transport
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/mylxsw/asteria/log"
+	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/proxy"
 	"io"
@@ -15,7 +17,7 @@ import (
 	"time"
 )
 
-type TransparentUpstream struct {
+type Client struct {
 	// url Destination address
 	url *url.URL
 	// dialer When the dialer is not empty, the dialer is used for the request
@@ -24,13 +26,13 @@ type TransparentUpstream struct {
 	director func(req *http.Request)
 }
 
-func NewTransparentUpstream(server string, key string, dialer proxy.Dialer) (*TransparentUpstream, error) {
+func New(server string, key string, dialer proxy.Dialer) (*Client, error) {
 	target, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	return &TransparentUpstream{
+	return &Client{
 		url:    target,
 		dialer: dialer,
 		director: func(r *http.Request) {
@@ -45,7 +47,7 @@ func NewTransparentUpstream(server string, key string, dialer proxy.Dialer) (*Tr
 	}, nil
 }
 
-func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
+func (target *Client) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
 	// Proxy forwarding
 	revProxy := httputil.NewSingleHostReverseProxy(target.url)
 	if target.dialer != nil {
@@ -83,7 +85,7 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 		log.Debugf("request: %s %s [%d] %v", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode, time.Since(startTime))
 
 		if resp.StatusCode >= 500 {
-			return fmt.Errorf("%w | %w", parseErrorMessage(resp), ErrUpstreamShouldRetry)
+			return fmt.Errorf("%w | %w", parseErrorMessage(resp), base.ErrUpstreamShouldRetry)
 		}
 
 		switch resp.StatusCode {
@@ -91,20 +93,20 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 			// 400 Error Responding to a content filtering issue with Azure
 			parsed := parseErrorMessage(resp)
 			if strings.Contains(parsed.Error(), "content_filter") {
-				return fmt.Errorf("%w | %w", ResponseError{Err: parsed, Resp: resp}, ErrUpstreamShouldRetry)
+				return fmt.Errorf("%w | %w", base.ResponseError{Err: parsed, Resp: resp}, base.ErrUpstreamShouldRetry)
 			}
 		case 403:
 			// 403 mistake
-			return fmt.Errorf("%w | %w", ResponseError{Err: parseErrorMessage(resp), Resp: resp}, ErrUpstreamShouldRetry)
+			return fmt.Errorf("%w | %w", base.ResponseError{Err: parseErrorMessage(resp), Resp: resp}, base.ErrUpstreamShouldRetry)
 		case 404:
 			// 404 Error, addressing the lack of a specific model for Azure
 			parsed := parseErrorMessage(resp)
 			if strings.Contains(parsed.Error(), "DeploymentNotFound") {
-				return fmt.Errorf("%w | %w", ResponseError{Err: parsed, Resp: resp}, ErrUpstreamShouldRetry)
+				return fmt.Errorf("%w | %w", base.ResponseError{Err: parsed, Resp: resp}, base.ErrUpstreamShouldRetry)
 			}
 		case 401, 429:
 			// Authentication and flow control errors
-			return fmt.Errorf("%w | %w", ResponseError{Err: parseErrorMessage(resp), Resp: resp}, ErrUpstreamShouldRetry)
+			return fmt.Errorf("%w | %w", base.ResponseError{Err: parseErrorMessage(resp), Resp: resp}, base.ErrUpstreamShouldRetry)
 		}
 
 		return nil
@@ -113,15 +115,6 @@ func (target *TransparentUpstream) Serve(w http.ResponseWriter, r *http.Request,
 	revProxy.ErrorHandler = errorHandler
 
 	revProxy.ServeHTTP(w, r)
-}
-
-type ResponseError struct {
-	Err  error
-	Resp *http.Response
-}
-
-func (r ResponseError) Error() string {
-	return r.Err.Error()
 }
 
 func parseErrorMessage(resp *http.Response) error {
