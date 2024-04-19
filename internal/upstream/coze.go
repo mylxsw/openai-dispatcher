@@ -317,7 +317,7 @@ func (up *CozeUpstream) streamHandler(client *http.Client, openaiReq openai.Chat
 		if cozeResp.Event == "message" && cozeResp.Message.Type == "answer" {
 			openaiResp := openai.ChatCompletionStreamResponse{
 				ID:      strconv.Itoa(index),
-				Object:  "chat.completion",
+				Object:  "chat.completion.chunk",
 				Created: time.Now().Unix(),
 				Model:   openaiReq.Model,
 				Choices: array.Map([]CozeMessage{cozeResp.Message}, func(item CozeMessage, i int) openai.ChatCompletionStreamChoice {
