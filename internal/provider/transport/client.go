@@ -7,6 +7,7 @@ import (
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"golang.org/x/net/proxy"
 	"io"
 	"net"
@@ -24,9 +25,10 @@ type Client struct {
 	dialer proxy.Dialer
 	// director Request edit
 	director func(req *http.Request)
+	replace  func(model string) string
 }
 
-func New(server string, key string, dialer proxy.Dialer) (*Client, error) {
+func New(server string, key string, dialer proxy.Dialer, replace func(model string) string) (*Client, error) {
 	target, err := url.Parse(server)
 	if err != nil {
 		return nil, err
@@ -44,10 +46,42 @@ func New(server string, key string, dialer proxy.Dialer) (*Client, error) {
 				r.Header.Set("Authorization", "Bearer "+key)
 			}
 		},
+		replace: replace,
 	}, nil
 }
 
+func (target *Client) readRequestBody(r *http.Request) ([]byte, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	return body, nil
+}
+
+func (target *Client) replaceRequestBody(r *http.Request, newBody []byte) {
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(newBody))
+	r.ContentLength = int64(len(newBody))
+}
+
 func (target *Client) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
+	if target.replace != nil {
+		body, err := target.readRequestBody(r)
+		if err != nil {
+			errorHandler(w, r, err)
+			return
+		}
+
+		newBody, _ := sjson.Set(string(body), "model", target.replace(gjson.Get(string(body), "model").String()))
+		body = []byte(newBody)
+
+		target.replaceRequestBody(r, body)
+	}
+
 	// Proxy forwarding
 	revProxy := httputil.NewSingleHostReverseProxy(target.url)
 	if target.dialer != nil {

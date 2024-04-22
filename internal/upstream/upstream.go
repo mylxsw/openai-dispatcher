@@ -65,7 +65,12 @@ func NewUpstreams(policy Policy) *Upstreams {
 	return &Upstreams{policy: policy, ups: make([]*Upstream, 0)}
 }
 
-func (u *Upstreams) init() error {
+func (u *Upstreams) Add(upstream *Upstream) {
+	upstream.Index = len(u.ups)
+	u.ups = append(u.ups, upstream)
+}
+
+func (u *Upstreams) Init() error {
 	if len(u.ups) == 0 {
 		return nil
 	}
@@ -103,6 +108,10 @@ func (u *Upstreams) init() error {
 
 func (u *Upstreams) Len() int {
 	return len(u.ups)
+}
+
+func (u *Upstreams) All() []*Upstream {
+	return u.ups
 }
 
 func (u *Upstreams) Next(excludeIndex ...int) (*Upstream, int) {
@@ -167,25 +176,34 @@ func mask(left int, content string) string {
 	return content[:left] + strings.Repeat("*", size-left*2) + content[size-left:]
 }
 
-func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, dialer proxy.Dialer) (map[string]*Upstreams, *Upstreams, error) {
-	ups := make(map[string]*Upstreams)
-	defaultUps := NewUpstreams(policy)
+type Result struct {
+	Upstreams map[string]*Upstreams
+	Default   *Upstreams
+	ExprRules []config.Rule
+}
+
+func BuildUpstreamsFromRules(policy Policy, rules config.Rules, dialer proxy.Dialer) (*Result, error) {
+	result := &Result{
+		Upstreams: make(map[string]*Upstreams),
+		Default:   NewUpstreams(policy),
+		ExprRules: make([]config.Rule, 0),
+	}
 
 	for i, rule := range rules {
 		for _, model := range rule.GetModels() {
-			if _, ok := ups[model]; !ok {
-				ups[model] = NewUpstreams(policy)
+			if _, ok := result.Upstreams[model]; !ok {
+				result.Upstreams[model] = NewUpstreams(policy)
 			}
 
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil)); err != nil {
-						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
+					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil), rule.ModelReplacer); err != nil {
+						return nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					} else {
-						ups[model].ups = append(ups[model].ups, &Upstream{
+						result.Upstreams[model].ups = append(result.Upstreams[model].ups, &Upstream{
 							Rule:        rule,
 							Handler:     handler,
-							Index:       len(ups[model].ups),
+							Index:       len(result.Upstreams[model].ups),
 							ServerIndex: serverIndex,
 							KeyIndex:    keyIndex,
 						})
@@ -193,6 +211,14 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 				}
 			}
 		}
+	}
+
+	for _, rule := range rules {
+		if rule.Expr == nil || rule.Expr.Match == "" {
+			continue
+		}
+
+		result.ExprRules = append(result.ExprRules, rule)
 	}
 
 	for i, rule := range rules {
@@ -200,17 +226,17 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 			continue
 		}
 
-		dum := array.ToMap(defaultUps.ups, func(t *Upstream, _ int) string { return t.Rule.Name })
+		dum := array.ToMap(result.Default.ups, func(t *Upstream, _ int) string { return t.Rule.Name })
 		if _, ok := dum[rule.Name]; !ok {
 			for serverIndex, server := range rule.Servers {
 				for keyIndex, key := range rule.Keys {
-					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil)); err != nil {
-						return nil, nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
+					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, dialer, nil), rule.ModelReplacer); err != nil {
+						return nil, fmt.Errorf("upstream failed to create #%d: %w", i+1, err)
 					} else {
-						defaultUps.ups = append(defaultUps.ups, &Upstream{
+						result.Default.ups = append(result.Default.ups, &Upstream{
 							Rule:        rule,
 							Handler:     handler,
-							Index:       len(defaultUps.ups),
+							Index:       len(result.Default.ups),
 							ServerIndex: serverIndex,
 							KeyIndex:    keyIndex,
 						})
@@ -220,15 +246,15 @@ func BuildUpstreamsFromRules(policy Policy, rules config.Rules, err error, diale
 		}
 	}
 
-	for _, up := range ups {
-		if err := up.init(); err != nil {
-			return nil, nil, err
+	for _, up := range result.Upstreams {
+		if err := up.Init(); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := defaultUps.init(); err != nil {
-		return nil, nil, err
+	if err := result.Default.Init(); err != nil {
+		return nil, err
 	}
 
-	return ups, defaultUps, nil
+	return result, nil
 }

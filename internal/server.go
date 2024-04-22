@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
+	"github.com/mylxsw/go-utils/must"
+	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/mylxsw/openai-dispatcher/internal/provider"
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/mylxsw/openai-dispatcher/internal/upstream"
+	"github.com/mylxsw/openai-dispatcher/pkg/expr"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"golang.org/x/net/proxy"
 	"io"
 	"net/http"
@@ -23,6 +26,7 @@ type Server struct {
 	conf             *config.Config
 	upstreams        map[string]*upstream.Upstreams
 	defaultUpstreams *upstream.Upstreams
+	exprRules        []config.Rule
 
 	dialer proxy.Dialer
 	once   sync.Once
@@ -39,24 +43,25 @@ func NewServer(conf *config.Config) (*Server, error) {
 		}
 	}
 
-	upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, conf.Validate(), dialer)
+	result, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, dialer)
 	if err != nil {
 		return nil, err
 	}
 
-	for model, ups := range upstreams {
+	for model, ups := range result.Upstreams {
 		fmt.Println(model)
 		ups.Print()
 	}
 
 	fmt.Println("-------- defaults ---------")
 
-	defaultUpstreams.Print()
+	result.Default.Print()
 
 	return &Server{
 		conf:             conf,
-		upstreams:        upstreams,
-		defaultUpstreams: defaultUpstreams,
+		upstreams:        result.Upstreams,
+		defaultUpstreams: result.Default,
+		exprRules:        result.ExprRules,
 	}, nil
 }
 
@@ -108,6 +113,69 @@ var (
 	ErrNotSupport    = errors.New("not support")
 )
 
+func (s *Server) selectUpstreams(model string) *upstream.Upstreams {
+	if ups, ok := s.upstreams[model]; ok {
+		return ups
+	}
+
+	var ups *upstream.Upstreams
+	for _, rule := range s.exprRules {
+		if rule.Expr == nil || rule.Expr.Match == "" {
+			continue
+		}
+
+		matched, err := must.Must(expr.NewBoolVM(rule.Expr.Match)).Run(expr.Data{Model: model})
+		if err != nil {
+			log.F(log.M{"model": model, "expr": rule.Expr.Match}).Errorf("evaluate expr failed: %v", err)
+			continue
+		}
+
+		if matched {
+			if ups == nil {
+				ups = upstream.NewUpstreams(upstream.Policy(s.conf.Policy))
+			}
+
+			for serverIndex, server := range rule.Servers {
+				for keyIndex, key := range rule.Keys {
+					if handler, err := provider.CreateHandler(rule.Type, server, key, ternary.If(rule.Proxy, s.dialer, nil), rule.ModelReplacer); err != nil {
+						log.Errorf("upstream failed to create: %v", err)
+					} else {
+						ups.Add(&upstream.Upstream{
+							Rule:        rule,
+							Handler:     handler,
+							ServerIndex: serverIndex,
+							KeyIndex:    keyIndex,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	if ups != nil && ups.Len() > 0 {
+		if err := ups.Init(); err != nil {
+			log.F(log.M{"model": model, "ups": ups}).Errorf("upstreams init failed: %v", err)
+			return nil
+		}
+
+		return ups
+	}
+
+	return nil
+}
+
+func (s *Server) EvalTest(model string) {
+	ups := s.selectUpstreams(model)
+	if ups == nil || ups.Len() == 0 {
+		// If no corresponding upstream is found, use the default upstream.
+		ups = s.defaultUpstreams
+	}
+
+	for i, up := range ups.All() {
+		log.F(log.M{"cur": up.Name(), "index": i}).Infof("dispatch request: %s -> %s", model, up.Rule.ModelReplacer(model))
+	}
+}
+
 // Dispatch Request distribution implementation logic
 func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	var ups *upstream.Upstreams
@@ -140,7 +208,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 			return ErrModelRequired
 		}
 
-		ups = s.upstreams[model]
+		ups = s.selectUpstreams(model)
 		if ups == nil || ups.Len() == 0 {
 			// If no corresponding upstream is found, use the default upstream.
 			ups = s.defaultUpstreams
@@ -150,17 +218,6 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		if selected == nil {
 			return ErrNotSupport
 		}
-
-		for _, rewrite := range selected.Rule.Rewrite {
-			if model == rewrite.Src {
-				newBody, _ := sjson.Set(string(body), "model", rewrite.Dst)
-				body = []byte(newBody)
-
-				s.replaceRequestBody(r, body)
-				break
-			}
-		}
-
 	} else {
 		ups = s.defaultUpstreams
 		selected, selectedIndex = ups.Next()

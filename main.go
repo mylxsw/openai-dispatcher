@@ -20,9 +20,11 @@ import (
 func main() {
 	var configFilePath string
 	var configTest bool
+	var evalTestModel string
 
 	flag.StringVar(&configFilePath, "conf", "config.yaml", "Configuration file path")
 	flag.BoolVar(&configTest, "test", false, "Test profile")
+	flag.StringVar(&evalTestModel, "eval", "", "Test model evaluation")
 	flag.Parse()
 
 	conf, err := config.LoadConfig(configFilePath)
@@ -44,20 +46,20 @@ func main() {
 	}
 
 	if configTest {
-		upstreams, defaultUpstreams, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, conf.Validate(), nil)
+		ret, err := upstream.BuildUpstreamsFromRules(upstream.Policy(conf.Policy), conf.Rules, nil)
 		if err != nil {
 			panic(fmt.Errorf("configuration file test failed：%v", err))
 		}
 
 		fmt.Print("\n-------- Models-Upstreams --------\n\n")
-		for model, ups := range upstreams {
+		for model, ups := range ret.Upstreams {
 			fmt.Println(model)
 			ups.Print()
 			fmt.Println()
 		}
 
 		fmt.Print("\n-------- Default-Upstreams --------\n\n")
-		defaultUpstreams.Print()
+		ret.Default.Print()
 
 		return
 	}
@@ -67,6 +69,12 @@ func main() {
 	server, err := internal.NewServer(conf)
 	if err != nil {
 		panic(fmt.Errorf("failed to initialize the service：%v", err))
+	}
+
+	if evalTestModel != "" {
+		fmt.Printf("\n---------------------- Eval ----------------------\n\n")
+		server.EvalTest(evalTestModel)
+		return
 	}
 
 	if conf.EnablePrometheus {

@@ -3,9 +3,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
+	"github.com/mylxsw/go-utils/must"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
+	"github.com/mylxsw/openai-dispatcher/pkg/expr"
 	"gopkg.in/yaml.v3"
 	"os"
 )
@@ -31,6 +34,20 @@ func (conf *Config) Validate() error {
 	for i, rule := range conf.Rules {
 		if !array.In(rule.Type, []base.ChannelType{base.ChannelTypeOpenAI, base.ChannelTypeCoze}) {
 			return fmt.Errorf("%s type is under development, so stay tuned #%d", rule.Type, i+1)
+		}
+
+		if rule.Expr != nil {
+			if rule.Expr.Match != "" {
+				if _, err := expr.NewBoolVM(rule.Expr.Match); err != nil {
+					return fmt.Errorf("rule #%d, expr.match: %s", i+1, err)
+				}
+			}
+
+			if rule.Expr.Replace != "" {
+				if _, err := expr.NewStringVM(rule.Expr.Replace); err != nil {
+					return fmt.Errorf("rule #%d, expr.replace: %s", i+1, err)
+				}
+			}
 		}
 	}
 
@@ -60,10 +77,40 @@ type Rule struct {
 	Backup bool `yaml:"backup,omitempty" json:"backup,omitempty"`
 	// Weight, used for the weight policy. The default value is 1. A negative value indicates that the rule is not used
 	Weight int `yaml:"weight,omitempty" json:"weight,omitempty"`
+
+	// Advanced configuration
+	Expr *Expr `yaml:"expr,omitempty" json:"expr,omitempty"`
 }
 
-func (r Rule) GetModels() []string {
-	return array.Uniq(append(r.Models, array.Map(r.Rewrite, func(item ModelRewrite, _ int) string { return item.Src })...))
+func (rule Rule) ModelReplacer(model string) string {
+	for _, rewrite := range rule.Rewrite {
+		if model == rewrite.Src {
+			return rewrite.Dst
+		}
+	}
+
+	if rule.Expr != nil && rule.Expr.Replace != "" {
+		replacedModel, err := must.Must(expr.NewStringVM(rule.Expr.Replace)).Run(expr.Data{Model: model})
+		if err != nil {
+			log.F(log.M{"model": model, "rule": rule.Name}).Errorf("replace model failed: %v", err)
+			return model
+		}
+
+		return replacedModel
+	}
+
+	return model
+}
+
+type Expr struct {
+	// Match Expression to determine whether the model matches the current channel
+	Match string `yaml:"match,omitempty" json:"match,omitempty"`
+	// Replace Expression to replace the model name
+	Replace string `yaml:"replace,omitempty" json:"replace,omitempty"`
+}
+
+func (rule Rule) GetModels() []string {
+	return array.Uniq(append(rule.Models, array.Map(rule.Rewrite, func(item ModelRewrite, _ int) string { return item.Src })...))
 }
 
 type ModelRewrite struct {

@@ -99,3 +99,12 @@ rules:
     rewrite:
       - src: coze-inspirational-coach # models 中自定义的模型名称
         dst: "7359114777911705616" # Coze 的 bot_id，调用 Coze 接口时，会转换为对应的 bot_id
+    # 高级表达式匹配，注意：models 和 rewrite 中的配置优先级高于 expr
+    # 语法在这里：https://expr-lang.org/
+    # 可用变量为
+    # - Model: 模型名称
+    expr:
+      # 高级用法：表达式匹配模型名称
+      match: Model matches "^coze-"
+      # 高级用法：表达式替换模型名称
+      replace: trimPrefix(Model, "coze-")

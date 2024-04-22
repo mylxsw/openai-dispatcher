@@ -16,13 +16,14 @@ import (
 )
 
 type provider struct {
-	client base.Provider
-	server string
-	key    string
-	dialer proxy.Dialer
+	client  base.Provider
+	server  string
+	key     string
+	dialer  proxy.Dialer
+	replace func(model string) string
 }
 
-func CreateHandler(typ base.ChannelType, server string, key string, dialer proxy.Dialer) (base.Handler, error) {
+func CreateHandler(typ base.ChannelType, server string, key string, dialer proxy.Dialer, replace func(model string) string) (base.Handler, error) {
 	var client base.Provider
 	//var err error
 	switch typ {
@@ -31,14 +32,15 @@ func CreateHandler(typ base.ChannelType, server string, key string, dialer proxy
 	case base.ChannelTypeAnthropic:
 		client = anthropic.New(server, key, dialer)
 	default:
-		return transport.New(server, key, dialer)
+		return transport.New(server, key, dialer, replace)
 	}
 
 	return &provider{
-		client: client,
-		server: server,
-		key:    key,
-		dialer: dialer,
+		client:  client,
+		server:  server,
+		key:     key,
+		dialer:  dialer,
+		replace: replace,
 	}, nil
 }
 
@@ -54,6 +56,10 @@ func (p *provider) Serve(ctx context.Context, w http.ResponseWriter, r *http.Req
 		log.Errorf("decode request failed: %v", err)
 		errorHandler(w, r, base.ErrUpstreamShouldRetry)
 		return
+	}
+
+	if p.replace != nil {
+		req.Model = p.replace(req.Model)
 	}
 
 	if req.Stream {
