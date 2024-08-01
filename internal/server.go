@@ -226,8 +226,12 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	log.F(log.M{"cur": selected.Name(), "candidates": ups.Len(), "model": model}).
-		Debugf("dispatch request: %s %s", r.Method, r.URL.String())
+	logCtx := log.M{"cur": selected.Name(), "candidates": ups.Len(), "model": model}
+	if s.conf.Verbose && s.conf.Debug {
+		logCtx["body"] = string(body)
+	}
+
+	log.F(logCtx).Debugf("dispatch request: %s %s", r.Method, r.URL.String())
 
 	usedIndex := []int{selectedIndex}
 

@@ -6,6 +6,8 @@ socks5: 127.0.0.1:1080
 log-path: ""
 # 是否输出 Debug 日志
 debug: false
+# 是否输出详细日志，DEBUG 模式下，会输出请求的 Body
+verbose: false
 # 是否启用 Prometheus metrics
 enable-prometheus: false
 
