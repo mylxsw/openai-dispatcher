@@ -3,8 +3,10 @@ package base
 import (
 	"context"
 	"errors"
+	"github.com/mylxsw/go-utils/array"
 	"github.com/sashabaranov/go-openai"
 	"net/http"
+	"strings"
 )
 
 var (
@@ -25,6 +27,21 @@ const (
 	EndpointModeration      Endpoint = "/v1/moderations"
 	EndpointEmbedding       Endpoint = "/v1/embeddings"
 )
+
+func EndpointHasModel(path string) bool {
+	return array.In(Endpoint(strings.TrimSuffix(path, "/")), []Endpoint{
+		EndpointChatCompletion,
+		EndpointCompletion,
+		EndpointImageGeneration,
+		EndpointImageEdit,
+		EndpointImageVariation,
+		EndpointAudioSpeech,
+		EndpointAudioTranscript,
+		EndpointAudioTranslate,
+		EndpointModeration,
+		EndpointEmbedding,
+	})
+}
 
 type Handler interface {
 	Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error))

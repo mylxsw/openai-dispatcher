@@ -22,6 +22,7 @@ type Config struct {
 	Keys             []string `yaml:"keys" json:"-"`
 	Policy           string   `yaml:"policy" json:"policy,omitempty"`
 	Rules            Rules    `yaml:"rules" json:"rules,omitempty"`
+	ExtraModels      []string `yaml:"extra-models" json:"extra-models,omitempty"`
 	EnablePrometheus bool     `yaml:"enable-prometheus" json:"enable-prometheus,omitempty"`
 }
 
@@ -129,6 +130,8 @@ func LoadConfig(configFilePath string) (*Config, error) {
 	if err := yaml.Unmarshal(configData, &conf); err != nil {
 		return nil, err
 	}
+
+	conf.ExtraModels = array.Uniq(conf.ExtraModels)
 
 	rules := make(Rules, 0)
 

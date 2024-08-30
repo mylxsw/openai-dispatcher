@@ -3,10 +3,12 @@ package internal
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/mylxsw/asteria/log"
 	"github.com/mylxsw/go-utils/array"
+	"github.com/mylxsw/go-utils/maps"
 	"github.com/mylxsw/go-utils/must"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
@@ -14,12 +16,14 @@ import (
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/mylxsw/openai-dispatcher/internal/upstream"
 	"github.com/mylxsw/openai-dispatcher/pkg/expr"
+	"github.com/sashabaranov/go-openai"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/proxy"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Server struct {
@@ -27,6 +31,8 @@ type Server struct {
 	upstreams        map[string]*upstream.Upstreams
 	defaultUpstreams *upstream.Upstreams
 	exprRules        []config.Rule
+
+	supportModels []openai.Model
 
 	dialer proxy.Dialer
 	once   sync.Once
@@ -57,11 +63,23 @@ func NewServer(conf *config.Config) (*Server, error) {
 
 	result.Default.Print()
 
+	// Support models
+	models := make([]openai.Model, 0)
+	for _, model := range array.Uniq(append(maps.Keys(result.Upstreams), conf.ExtraModels...)) {
+		models = append(models, openai.Model{
+			ID:        model,
+			Object:    "model",
+			CreatedAt: time.Now().Unix(),
+			OwnedBy:   "system",
+		})
+	}
+
 	return &Server{
 		conf:             conf,
 		upstreams:        result.Upstreams,
 		defaultUpstreams: result.Default,
 		exprRules:        result.ExprRules,
+		supportModels:    models,
 	}, nil
 }
 
@@ -176,33 +194,27 @@ func (s *Server) EvalTest(model string) {
 	}
 }
 
+type OpenAIModelResponse struct {
+	Object string         `json:"object"`
+	Data   []openai.Model `json:"data"`
+}
+
 // Dispatch Request distribution implementation logic
 func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	var ups *upstream.Upstreams
 	var selected *upstream.Upstream
 	var selectedIndex int
 
-	body, err := s.readRequestBody(r)
-	if err != nil {
-		return err
+	var body []byte
+	if !array.In(r.Method, []string{"GET", "OPTIONS", "HEAD"}) {
+		body, _ = s.readRequestBody(r)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var model string
-	if array.In(base.Endpoint(strings.TrimSuffix(r.URL.Path, "/")), []base.Endpoint{
-		base.EndpointChatCompletion,
-		base.EndpointCompletion,
-		base.EndpointImageGeneration,
-		base.EndpointImageEdit,
-		base.EndpointImageVariation,
-		base.EndpointAudioSpeech,
-		base.EndpointAudioTranscript,
-		base.EndpointAudioTranslate,
-		base.EndpointModeration,
-		base.EndpointEmbedding,
-	}) {
+	if base.EndpointHasModel(r.URL.Path) {
 		model = gjson.Get(string(body), "model").String()
 		if model == "" {
 			return ErrModelRequired
@@ -218,6 +230,14 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		if selected == nil {
 			return ErrNotSupport
 		}
+	} else if strings.TrimSuffix(r.URL.Path, "/") == "/v1/models" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(must.Must(json.Marshal(OpenAIModelResponse{
+			Object: "list",
+			Data:   s.supportModels,
+		})))
+		return nil
 	} else {
 		ups = s.defaultUpstreams
 		selected, selectedIndex = ups.Next()
@@ -248,8 +268,10 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 
 			usedIndex = append(usedIndex, selectedIndex)
 
-			_ = r.Body.Close()
-			r.Body = io.NopCloser(bytes.NewBuffer(body))
+			if !array.In(r.Method, []string{"GET", "OPTIONS", "HEAD"}) {
+				_ = r.Body.Close()
+				r.Body = io.NopCloser(bytes.NewBuffer(body))
+			}
 
 			selected.Handler.Serve(ctx, w, r, retry)
 			return

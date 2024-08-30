@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/mylxsw/asteria/log"
+	"github.com/mylxsw/go-utils/array"
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -69,7 +70,7 @@ func (target *Client) replaceRequestBody(r *http.Request, newBody []byte) {
 }
 
 func (target *Client) Serve(ctx context.Context, w http.ResponseWriter, r *http.Request, errorHandler func(w http.ResponseWriter, r *http.Request, err error)) {
-	if target.replace != nil {
+	if target.replace != nil && base.EndpointHasModel(r.URL.Path) && !array.In(r.Method, []string{"GET", "OPTIONS", "HEAD"}) {
 		body, err := target.readRequestBody(r)
 		if err != nil {
 			errorHandler(w, r, err)
