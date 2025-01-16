@@ -104,11 +104,7 @@ func (client *Client) Moderation(ctx context.Context, req Request) (*Response, e
 	startTime := time.Now()
 	defer func() {
 		if log.DebugEnabled() {
-			log.WithFields(log.Fields{
-				"duration": time.Since(startTime),
-				"request":  req,
-				"response": result,
-			}).Debugf("moderation request completed, duration: %s", time.Since(startTime))
+			log.Debugf("moderation request completed, duration: %s", time.Since(startTime))
 		}
 	}()
 
