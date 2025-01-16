@@ -11,19 +11,21 @@ import (
 	"github.com/mylxsw/openai-dispatcher/pkg/expr"
 	"gopkg.in/yaml.v3"
 	"os"
+	"strings"
 )
 
 type Config struct {
-	LogPath          string   `yaml:"log-path" json:"log-path,omitempty"`
-	Debug            bool     `yaml:"debug" json:"debug,omitempty"`
-	Verbose          bool     `yaml:"verbose" json:"verbose,omitempty"`
-	Listen           string   `yaml:"listen" json:"listen,omitempty"`
-	Socks5           string   `yaml:"socks5" json:"socks5,omitempty"`
-	Keys             []string `yaml:"keys" json:"-"`
-	Policy           string   `yaml:"policy" json:"policy,omitempty"`
-	Rules            Rules    `yaml:"rules" json:"rules,omitempty"`
-	ExtraModels      []string `yaml:"extra-models" json:"extra-models,omitempty"`
-	EnablePrometheus bool     `yaml:"enable-prometheus" json:"enable-prometheus,omitempty"`
+	LogPath          string     `yaml:"log-path" json:"log-path,omitempty"`
+	Debug            bool       `yaml:"debug" json:"debug,omitempty"`
+	Verbose          bool       `yaml:"verbose" json:"verbose,omitempty"`
+	Listen           string     `yaml:"listen" json:"listen,omitempty"`
+	Socks5           string     `yaml:"socks5" json:"socks5,omitempty"`
+	Keys             []string   `yaml:"keys" json:"-"`
+	Policy           string     `yaml:"policy" json:"policy,omitempty"`
+	Rules            Rules      `yaml:"rules" json:"rules,omitempty"`
+	ExtraModels      []string   `yaml:"extra-models" json:"extra-models,omitempty"`
+	EnablePrometheus bool       `yaml:"enable-prometheus" json:"enable-prometheus,omitempty"`
+	Moderation       Moderation `yaml:"moderation" json:"moderation,omitempty"`
 }
 
 func (conf *Config) Validate() error {
@@ -50,6 +52,21 @@ func (conf *Config) Validate() error {
 					return fmt.Errorf("rule #%d, expr.replace: %s", i+1, err)
 				}
 			}
+		}
+	}
+
+	if conf.Moderation.Enabled {
+		if conf.Moderation.API.Type != "openai" {
+			return fmt.Errorf("moderation api type only support openai")
+		}
+
+		if !strings.HasPrefix(conf.Moderation.API.Server, "http://") &&
+			!strings.HasPrefix(conf.Moderation.API.Server, "https://") {
+			return fmt.Errorf("moderation api server must be a valid url")
+		}
+
+		if conf.Moderation.API.Key == "" {
+			return fmt.Errorf("moderation api key is required")
 		}
 	}
 
@@ -178,6 +195,38 @@ func LoadConfig(configFilePath string) (*Config, error) {
 
 	conf.Rules = rules
 
+	if conf.Moderation.Enabled {
+		if len(conf.Moderation.Categories) == 0 {
+			conf.Moderation.Categories = []string{
+				"sexual",
+				"sexual/minors",
+				"harassment",
+				"harassment/threatening",
+				"hate",
+				"hate/threatening",
+				"illicit",
+				"illicit/violent",
+				"self-harm",
+				"self-harm/intent",
+				"self-harm/instructions",
+				"violence",
+				"violence/graphic",
+			}
+		}
+
+		if conf.Moderation.API.Type == "" {
+			conf.Moderation.API.Type = "openai"
+		}
+
+		if conf.Moderation.API.Server == "" {
+			conf.Moderation.API.Server = "https://api.openai.com"
+		}
+
+		if conf.Moderation.API.Model == "" {
+			conf.Moderation.API.Model = "omni-moderation-latest"
+		}
+	}
+
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
@@ -192,4 +241,20 @@ type ModelKey struct {
 	Models  []string `json:"models,omitempty"`
 	Key     string   `json:"key,omitempty"`
 	Keys    []string `json:"keys,omitempty"`
+}
+
+type Moderation struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// ClientCanIgnore If the client can ignore the moderation result, If client send a request with `X-Ignore-Moderation` header, the dispatcher will ignore the moderation result
+	ClientCanIgnore bool          `yaml:"client-can-ignore" json:"client-can-ignore"`
+	Categories      []string      `yaml:"categories" json:"categories"`
+	API             ModerationAPI `yaml:"api" json:"api"`
+}
+
+type ModerationAPI struct {
+	Type   string `yaml:"type" json:"type"`
+	Server string `yaml:"server" json:"server"`
+	Key    string `yaml:"key" json:"key"`
+	Proxy  bool   `yaml:"proxy" json:"proxy"`
+	Model  string `yaml:"model" json:"model"`
 }

@@ -53,6 +53,38 @@ extra-models:
 # 代理选择策略：round_robin、random、weight
 policy: "round_robin"
 
+# 是否启用内容过滤
+moderation:
+  enabled: false
+  # 是否允许客户端忽略内容过滤机制，客户端通过设置请求头 X-Ignore-Moderation: true 来忽略内容过滤机制
+  client-can-ignore: false
+  # 内容过滤的类型，满足以下任意一种类型的内容都会被禁止
+  categories:
+    - sexual
+    - sexual/minors
+    - harassment
+    - harassment/threatening
+    - hate
+    - hate/threatening
+    - illicit
+    - illicit/violent
+    - self-harm
+    - self-harm/intent
+    - self-harm/instructions
+    - violence
+    - violence/graphic
+  api:
+    # 接口类型：当前只支持 openai
+    type: "openai"
+    # OpenAI 服务器地址
+    server: "https://api.openai.com"
+    # OpenAI Key
+    key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    # OpenAI 模型名称
+    model: "omni-moderation-latest"
+    # 是否使用 Socks5 代理请求
+    proxy: true
+
 # 代理规则
 rules:
   - type: openai # 类型，当前支持 openai/coze

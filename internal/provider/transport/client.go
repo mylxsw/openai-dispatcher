@@ -110,7 +110,7 @@ func (target *Client) Serve(ctx context.Context, w http.ResponseWriter, r *http.
 			})
 
 			// send a post request to the server
-			req, err := http.NewRequest("POST", must.Must(url.JoinPath(target.server, "/v1/chat/completions")), strings.NewReader(string(must.Must(json.Marshal(reqBody)))))
+			req, err := http.NewRequestWithContext(ctx, "POST", must.Must(url.JoinPath(target.server, "/v1/chat/completions")), strings.NewReader(string(must.Must(json.Marshal(reqBody)))))
 			if err != nil {
 				errorHandler(w, r, err)
 				return
@@ -245,7 +245,9 @@ func (target *Client) Serve(ctx context.Context, w http.ResponseWriter, r *http.
 		}
 	}
 	revProxy.ModifyResponse = func(resp *http.Response) error {
-		log.Debugf("request: %s %s [%d] %v", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode, time.Since(startTime))
+		if log.DebugEnabled() {
+			log.Debugf("request: %s %s [%d] %v", resp.Request.Method, resp.Request.URL.String(), resp.StatusCode, time.Since(startTime))
+		}
 
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("%w | %w", parseErrorMessage(resp), base.ErrUpstreamShouldRetry)

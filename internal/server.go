@@ -12,6 +12,7 @@ import (
 	"github.com/mylxsw/go-utils/must"
 	"github.com/mylxsw/go-utils/ternary"
 	"github.com/mylxsw/openai-dispatcher/internal/config"
+	"github.com/mylxsw/openai-dispatcher/internal/moderation"
 	"github.com/mylxsw/openai-dispatcher/internal/provider"
 	"github.com/mylxsw/openai-dispatcher/internal/provider/base"
 	"github.com/mylxsw/openai-dispatcher/internal/upstream"
@@ -26,6 +27,12 @@ import (
 	"time"
 )
 
+var (
+	ErrRequestFlagged = errors.New("the request contains illegal content, we cannot service you")
+	ErrModelRequired  = errors.New("model is required")
+	ErrNotSupport     = errors.New("not support")
+)
+
 type Server struct {
 	conf             *config.Config
 	upstreams        map[string]*upstream.Upstreams
@@ -36,6 +43,8 @@ type Server struct {
 
 	dialer proxy.Dialer
 	once   sync.Once
+
+	moderation *moderation.Client
 }
 
 func NewServer(conf *config.Config) (*Server, error) {
@@ -74,13 +83,23 @@ func NewServer(conf *config.Config) (*Server, error) {
 		})
 	}
 
-	return &Server{
+	server := Server{
 		conf:             conf,
 		upstreams:        result.Upstreams,
 		defaultUpstreams: result.Default,
 		exprRules:        result.ExprRules,
 		supportModels:    models,
-	}, nil
+	}
+
+	if conf.Moderation.Enabled {
+		server.moderation = moderation.New(
+			conf.Moderation.API.Server,
+			conf.Moderation.API.Key,
+			ternary.If(conf.Moderation.API.Proxy, dialer, nil),
+		)
+	}
+
+	return &server, nil
 }
 
 // readRequestBody Read the Body of the request
@@ -125,11 +144,6 @@ func (s *Server) buildRequest(r *http.Request) (*Request, error) {
 		Body:        body,
 	}, nil
 }
-
-var (
-	ErrModelRequired = errors.New("model is required")
-	ErrNotSupport    = errors.New("not support")
-)
 
 func (s *Server) selectUpstreams(model string) *upstream.Upstreams {
 	if ups, ok := s.upstreams[model]; ok {
@@ -210,8 +224,43 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		body, _ = s.readRequestBody(r)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
+
+	// Check if the request contains any illegal content
+	if s.moderation != nil && base.EndpointNeedModeration(r.URL.Path) {
+		if s.conf.Moderation.ClientCanIgnore && strings.ToLower(r.Header.Get("X-Ignore-Moderation")) == "true" {
+			if log.DebugEnabled() {
+				log.WithFields(log.Fields{"body": string(body)}).Debugf("client ignore moderation: %s", r.URL.Path)
+			}
+		} else {
+			var req openai.ChatCompletionRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				return err
+			}
+
+			mReq := moderation.ConvertChatToRequest(req, s.conf.Moderation.API.Model)
+			mRes, err := s.moderation.Moderation(ctx, mReq)
+			if err != nil {
+				log.With(mReq).Errorf("moderation failed: %v", err)
+				// If the moderation fails, we will continue to process the request
+			} else {
+				if mRes.Flagged() {
+					flaggedCategories := mRes.FlaggedCategories()
+					violatedCategories := array.Intersect(flaggedCategories, s.conf.Moderation.Categories)
+					// If the request is flagged by moderation, we will send the categories to the client as a response header
+					w.Header().Set("X-VIOLATED-CATEGORIES", strings.Join(violatedCategories, ","))
+
+					if len(violatedCategories) > 0 {
+						log.With(log.M{"moderation": mRes, "req": req}).Warning("request is flagged by moderation, blocked")
+						return ErrRequestFlagged
+					}
+
+					log.With(log.M{"moderation": mRes, "req": req}).Info("request is flagged by moderation, but not blocked")
+				}
+			}
+		}
+	}
 
 	var model string
 	if base.EndpointHasModel(r.URL.Path) {
@@ -246,12 +295,14 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	logCtx := log.M{"cur": selected.Name(), "candidates": ups.Len(), "model": model}
-	if s.conf.Verbose && s.conf.Debug {
-		logCtx["body"] = string(body)
-	}
+	if log.DebugEnabled() {
+		logCtx := log.M{"cur": selected.Name(), "candidates": ups.Len(), "model": model}
+		if s.conf.Verbose && s.conf.Debug {
+			logCtx["body"] = string(body)
+		}
 
-	log.F(logCtx).Debugf("dispatch request: %s %s", r.Method, r.URL.String())
+		log.F(logCtx).Debugf("dispatch request: %s %s", r.Method, r.URL.String())
+	}
 
 	usedIndex := []int{selectedIndex}
 
@@ -323,11 +374,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Distribution request
 	if err := s.Dispatch(w, r); err != nil {
-		log.Errorf("dispatch request failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error": {"message": "invalid request"}}`))
+		if errors.Is(err, ErrRequestFlagged) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"error": {"message": "%s"}}`, err.Error())))
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error": {"message": "invalid request"}}`))
+			log.Errorf("dispatch request failed: %v", err)
+		}
+
 		return
 	}
 }

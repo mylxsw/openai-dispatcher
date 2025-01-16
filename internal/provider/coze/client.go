@@ -171,7 +171,9 @@ func (client *Client) CompletionStream(ctx context.Context, openaiReq openai.Cha
 		return base.ErrUpstreamShouldRetry
 	}
 
-	log.Debug("coze request: ", string(body))
+	if log.DebugEnabled() {
+		log.Debug("coze request: ", string(body))
+	}
 
 	req, err := http.NewRequest("POST", client.url, strings.NewReader(string(body)))
 	if err != nil {
@@ -268,7 +270,9 @@ func (client *Client) CompletionStream(ctx context.Context, openaiReq openai.Cha
 			continue
 		}
 
-		log.Debugf("coze response: %s", string(data))
+		if log.DebugEnabled() {
+			log.Debugf("coze response: %s", string(data))
+		}
 
 		if !strings.HasPrefix(dataStr, "data:") {
 			continue
@@ -399,7 +403,9 @@ func (client *Client) Completion(ctx context.Context, openaiReq openai.ChatCompl
 		return base.ErrUpstreamShouldRetry
 	}
 
-	log.With(cozeResp).Debugf("coze non-stream response")
+	if log.DebugEnabled() {
+		log.With(cozeResp).Debugf("coze non-stream response")
+	}
 
 	openaiResp := openai.ChatCompletionResponse{
 		Model: openaiReq.Model,

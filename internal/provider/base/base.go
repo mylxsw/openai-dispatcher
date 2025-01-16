@@ -28,6 +28,13 @@ const (
 	EndpointEmbedding       Endpoint = "/v1/embeddings"
 )
 
+func EndpointNeedModeration(path string) bool {
+	return array.In(Endpoint(strings.TrimSuffix(path, "/")), []Endpoint{
+		EndpointChatCompletion,
+		EndpointCompletion,
+	})
+}
+
 func EndpointHasModel(path string) bool {
 	return array.In(Endpoint(strings.TrimSuffix(path, "/")), []Endpoint{
 		EndpointChatCompletion,
