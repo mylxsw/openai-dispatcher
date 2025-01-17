@@ -377,7 +377,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		if errors.Is(err, ErrRequestFlagged) {
-			w.WriteHeader(http.StatusForbidden)
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"error": {"message": "%s"}}`, err.Error())))
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
