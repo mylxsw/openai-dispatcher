@@ -231,7 +231,7 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 	if s.moderation != nil && base.EndpointNeedModeration(r.URL.Path) {
 		if s.conf.Moderation.ClientCanIgnore && strings.ToLower(r.Header.Get("X-Ignore-Moderation")) == "true" {
 			if log.DebugEnabled() {
-				log.WithFields(log.Fields{"body": string(body)}).Debugf("client ignore moderation: %s", r.URL.Path)
+				log.Debugf("client ignore moderation: %s", r.URL.Path)
 			}
 		} else {
 			var req openai.ChatCompletionRequest
@@ -239,26 +239,31 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 				return err
 			}
 
-			mReq := moderation.ConvertChatToRequest(req, s.conf.Moderation.API.Model)
-			mRes, err := s.moderation.Moderation(ctx, mReq)
-			if err != nil {
-				log.With(mReq).Errorf("moderation failed: %v", err)
-				// If the moderation fails, we will continue to process the request
-			} else {
-				if mRes.Flagged() {
-					flaggedCategories := mRes.FlaggedCategories()
-					violatedCategories := array.Intersect(flaggedCategories, s.conf.Moderation.Categories)
-					// If the request is flagged by moderation, we will send the categories to the client as a response header
-					w.Header().Set("X-VIOLATED-CATEGORIES", strings.Join(violatedCategories, ","))
+			// If the role of the last Message is robot, then there is no need to perform a sensitive word check
+			// because this is the result of the tool call
+			if len(req.Messages) > 0 && strings.ToLower(req.Messages[len(req.Messages)-1].Role) != "robot" {
+				mReq := moderation.ConvertChatToRequest(req, s.conf.Moderation.API.Model)
+				mRes, err := s.moderation.Moderation(ctx, mReq)
+				if err != nil {
+					log.With(mReq).Errorf("moderation failed: %v", err)
+					// If the moderation fails, we will continue to process the request
+				} else {
+					if mRes.Flagged() {
+						flaggedCategories := mRes.FlaggedCategories()
+						violatedCategories := array.Intersect(flaggedCategories, s.conf.Moderation.Categories)
+						// If the request is flagged by moderation, we will send the categories to the client as a response header
+						w.Header().Set("X-VIOLATED-CATEGORIES", strings.Join(violatedCategories, ","))
 
-					if len(violatedCategories) > 0 {
-						log.With(log.M{"moderation": mRes, "req": req}).Warning("request is flagged by moderation, blocked")
-						return ErrRequestFlagged
+						if len(violatedCategories) > 0 {
+							log.With(log.M{"moderation": mRes}).Warning("request is flagged by moderation, blocked")
+							return ErrRequestFlagged
+						}
+
+						log.With(log.M{"moderation": mRes}).Info("request is flagged by moderation, but not blocked")
 					}
-
-					log.With(log.M{"moderation": mRes, "req": req}).Info("request is flagged by moderation, but not blocked")
 				}
 			}
+
 		}
 	}
 
