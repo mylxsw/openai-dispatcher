@@ -248,8 +248,8 @@ func (s *Server) Dispatch(w http.ResponseWriter, r *http.Request) error {
 					log.With(mReq).Errorf("moderation failed: %v", err)
 					// If the moderation fails, we will continue to process the request
 				} else {
-					if mRes.Flagged() {
-						flaggedCategories := mRes.FlaggedCategories()
+					if mRes.Flagged(s.conf.Moderation.ScoreThreshold) {
+						flaggedCategories := mRes.FlaggedCategories(s.conf.Moderation.ScoreThreshold)
 						violatedCategories := array.Intersect(flaggedCategories, s.conf.Moderation.Categories)
 						// If the request is flagged by moderation, we will send the categories to the client as a response header
 						w.Header().Set("X-VIOLATED-CATEGORIES", strings.Join(violatedCategories, ","))

@@ -60,6 +60,10 @@ func (conf *Config) Validate() error {
 			return fmt.Errorf("moderation api type only support openai")
 		}
 
+		if conf.Moderation.ScoreThreshold > 1 || conf.Moderation.ScoreThreshold < 0 {
+			return fmt.Errorf("moderation score threshold must be between 0 and 1")
+		}
+
 		if !strings.HasPrefix(conf.Moderation.API.Server, "http://") &&
 			!strings.HasPrefix(conf.Moderation.API.Server, "https://") {
 			return fmt.Errorf("moderation api server must be a valid url")
@@ -214,6 +218,10 @@ func LoadConfig(configFilePath string) (*Config, error) {
 			}
 		}
 
+		if conf.Moderation.ScoreThreshold == 0 {
+			conf.Moderation.ScoreThreshold = 0.7
+		}
+
 		if conf.Moderation.API.Type == "" {
 			conf.Moderation.API.Type = "openai"
 		}
@@ -248,6 +256,7 @@ type Moderation struct {
 	// ClientCanIgnore If the client can ignore the moderation result, If client send a request with `X-Ignore-Moderation` header, the dispatcher will ignore the moderation result
 	ClientCanIgnore bool          `yaml:"client-can-ignore" json:"client-can-ignore"`
 	Categories      []string      `yaml:"categories" json:"categories"`
+	ScoreThreshold  float64       `yaml:"score-threshold" json:"score-threshold"`
 	API             ModerationAPI `yaml:"api" json:"api"`
 }
 

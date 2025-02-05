@@ -55,21 +55,25 @@ type Response struct {
 	Results []Result `json:"results,omitempty"`
 }
 
-func (resp Response) Flagged() bool {
+func (resp Response) Flagged(scoreThreshold float64) bool {
 	for _, result := range resp.Results {
 		if result.Flagged {
-			return true
+			for _, score := range result.CategoryScores {
+				if score >= scoreThreshold {
+					return true
+				}
+			}
 		}
 	}
 
 	return false
 }
 
-func (resp Response) FlaggedCategories() []string {
+func (resp Response) FlaggedCategories(scoreThreshold float64) []string {
 	var categories []string
 	for _, result := range resp.Results {
-		for category, flagged := range result.Categories {
-			if flagged {
+		for category, score := range result.CategoryScores {
+			if score >= scoreThreshold {
 				categories = append(categories, category)
 			}
 		}

@@ -58,6 +58,8 @@ moderation:
   enabled: false
   # 是否允许客户端忽略内容过滤机制，客户端通过设置请求头 X-Ignore-Moderation: true 来忽略内容过滤机制
   client-can-ignore: false
+  # 内容过滤阈值，某个 Category 分数高于这个值的内容会被认为违规
+  score-threshold: 0.7
   # 内容过滤的类型，满足以下任意一种类型的内容都会被禁止
   categories:
     - sexual
